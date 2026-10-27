@@ -40,13 +40,24 @@ export function subagentType(title) {
 export function createTracker(emit) {
   const status = new Map()  // main session id -> "work" | "wait" | "idle"
   const children = new Map()  // subagent session id -> { parent, type, running }
+  const models = new Map()  // main session id -> model id last reported
 
   // Each session reports on its own: under `opencode serve` one process runs
   // every window, and agent_hook.py files the states per session.
   function update(session, state) {
     if (!session || status.get(session) === state) return
     status.set(session, state)
-    emit({ hook_event_name: HOOK_EVENTS[state], session_id: session })
+    const model = models.get(session)
+    emit({ hook_event_name: HOOK_EVENTS[state], session_id: session, ...(model && { model }) })
+  }
+
+  // Sessions (2.x) and assistant messages (1.x: modelID) name their model;
+  // a change reaches agent_hook.py as an event that keeps the state.
+  function noteModel(session, info) {
+    const model = typeof info.model === "string" ? info.model : info.model?.id || info.model?.modelID || info.modelID
+    if (!session || children.has(session) || !model || models.get(session) === model) return
+    models.set(session, model)
+    if (status.has(session)) emit({ hook_event_name: "ModelSelect", session_id: session, model })
   }
 
   function child(session, running) {
@@ -69,6 +80,7 @@ export function createTracker(emit) {
     const data = event.data || event.properties || {}
     const info = data.info || data  // 1.x wraps sessions in `info`
     const session = data.sessionID || data.form?.sessionID
+    noteModel(session || info.sessionID || (event.type.startsWith("session.") && info.id), info)
     switch (event.type) {
       case "session.created":
       case "session.updated": {
@@ -83,6 +95,7 @@ export function createTracker(emit) {
         child(id, false)
         children.delete(id)
         status.delete(id)
+        models.delete(id)
         break
       }
       case "session.execution.started":

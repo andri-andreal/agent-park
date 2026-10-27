@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ import agent_hook
 import park_state
 from screensaver import (AgentMonitor, ENTRANCES, PLACE_DURATION, PLACES, RAID_COOLDOWN,
                          SPRITES, WORK_CHATTER, ProcessWatcher, RouterMonitor, SystemMonitor, World,
-                         render)
+                         render, short_model)
 
 
 class Screen:
@@ -428,6 +429,56 @@ class AgentTests(unittest.TestCase):
                              [("Pi", "bebek"), ("Strix", "anjing")])
 
     @unittest.skipUnless(shutil.which("node"), "needs node to load the pi extension")
+    def test_hook_names_each_sessions_model(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = f"{root}/state"
+            monitor = AgentMonitor(root, state_dir=state, clock=lambda: 1000.0)
+            for pid, comm in ((10, "claude"), (11, "kiro-cli"), (12, "opencode"), (13, "pi")):
+                self.fake_proc(root, pid, comm, 0)
+            hook = lambda pid, kind, event, **extra: agent_hook.record(
+                kind, {"hook_event_name": event, **extra}, pid, state, now=1000.0)
+            # Claude: the newest reply in the transcript the hook points to.
+            transcript = f"{root}/claude.jsonl"
+            with open(transcript, "w") as file:
+                for model in ("claude-sonnet-5-5", "claude-opus-5-5", "<synthetic>"):
+                    file.write(json.dumps({"message": {"role": "assistant", "model": model}}) + "\n")
+            hook(10, "claude", "UserPromptSubmit", transcript_path=transcript)
+            # Kiro: its own session folder, found by session id.
+            os.makedirs(f"{root}/kiro")
+            with open(f"{root}/kiro/k1.jsonl", "w") as file:
+                file.write(json.dumps({"kind": "AssistantMessage", "data": {"modelId": "auto"}}) + "\n")
+            with mock.patch.dict(agent_hook.TRANSCRIPTS, {"kiro-cli": f"{root}/kiro/{{session}}.jsonl"}):
+                hook(11, "kiro-cli", "userPromptSubmit", session_id="k1")
+            # OpenCode 2: the session table, opened read-only.
+            database = f"{root}/opencode.db"
+            with sqlite3.connect(database) as db:
+                db.execute("CREATE TABLE session_v2 (id TEXT, model TEXT)")
+                db.execute("INSERT INTO session_v2 VALUES ('ses_1', ?)",
+                           (json.dumps({"id": "MiniMax-M3.1-Flash", "providerID": "minimax"}),))
+            with mock.patch.object(agent_hook, "OPENCODE_DB", database):
+                hook(12, "opencode", "UserPromptSubmit", session_id="ses_1")
+            # Pi names it in the event; a model switch alone keeps what the animal does.
+            hook(13, "pi", "UserPromptSubmit", model="glm-5.2")
+            hook(13, "pi", "ModelSelect", model={"id": "deepseek-v4-pro", "provider": "deepseek"})
+            hook(13, "pi", "PreToolUse")  # no model given: the last one stays
+            hook(14, "pi", "ModelSelect", model="glm-5.2")  # no state yet: nothing to show
+            self.assertEqual(monitor.poll(0), {10: ("claude", "work"), 11: ("kiro-cli", "work"),
+                                               12: ("opencode", "work"), 13: ("pi", "work")})
+            self.assertEqual(monitor.models, {10: "claude-opus-5-5", 11: "auto",
+                                              12: "MiniMax-M3.1-Flash", 13: "deepseek-v4-pro"})
+            self.assertFalse(os.path.exists(f"{state}/14.json"))
+            self.assertEqual(short_model("anthropic/claude-opus-4-20250514"), "opus-4")
+            self.assertEqual(short_model("a-model-name-far-too-long-for-a-label"), "a-model-name-far-~")
+            # The model rides along to the cats and to the 3D view.
+            world = World(80, 24, seed=7)
+            world.sync_agents(monitor.poll(1), monitor.subagents, monitor.models)
+            self.assertEqual({a.name: a.model for a in world.animals if a.agent},
+                             {"Claude": "opus-5-5", "Kiro": "auto", "OpenCode": "MiniMax-M3.1-Flash",
+                              "Pi": "deepseek-v4-pro"})
+            snapshot = park_state.State(root, agents=monitor).poll(2)
+            self.assertEqual([a["model"] for a in snapshot["agents"]],
+                             ["opus-5-5", "auto", "MiniMax-M3.1-Flash", "deepseek-v4-pro"])
+
     def test_pi_extension_maps_agent_events(self):
         script = """
             const handlers = {}
@@ -442,7 +493,7 @@ class AgentTests(unittest.TestCase):
             self.skipTest("this node cannot strip TypeScript types")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout),
-                         ["agent_end", "agent_start", "session_shutdown", "session_start"])
+                         ["agent_end", "agent_start", "model_select", "session_shutdown", "session_start"])
 
     def test_state_lines_describe_agents_for_other_views(self):
         with tempfile.TemporaryDirectory() as root:
@@ -538,13 +589,17 @@ class AgentTests(unittest.TestCase):
             await ev("session.execution.interrupted", { sessionID: "b", reason: "user" })
             await ev("permission.asked", { id: "per_2", sessionID: "a" })
             await ev("session.execution.failed", { sessionID: "a" })  // never left waiting
+            await ev("session.updated", { sessionID: "a", model: { id: "glm-5.2", providerID: "zai" } })
+            await ev("session.execution.started", { sessionID: "a" })
             console.log(JSON.stringify(sent))
         """
         plugin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
         result = subprocess.run(["node", "--input-type=module", "-e", script, plugin],
                                 capture_output=True, text=True, check=True)
+        sent = json.loads(result.stdout)
+        self.assertEqual([e.get("model") for e in sent[-2:]], ["glm-5.2", "glm-5.2"])
         events = [(e["hook_event_name"], e.get("session_id"), e.get("agent_type"))
-                  for e in json.loads(result.stdout)]
+                  for e in sent[:-2]]
         self.assertEqual(events, [
             ("UserPromptSubmit", "a", None),
             ("UserPromptSubmit", "b", None),
@@ -820,6 +875,9 @@ class AgentTests(unittest.TestCase):
         text = "\n".join("".join(row) for row in screen.rows)
         self.assertTrue(any(f"[Claude] {chatter}" in text for chatter in WORK_CHATTER), text)
         self.assertIn("[Codex]", text)
+        world.sync_agents({7: ("claude", "work"), 9: ("codex", "idle")}, models={9: "gpt-6.1-sol"})
+        render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
+        self.assertIn("[Codex | gpt-6.1-sol]", "\n".join("".join(row) for row in screen.rows))
         self.assertIn("[ MARKAS AI: 1 kerja ]", text)
 
     def test_working_cats_sit_at_their_own_computers(self):

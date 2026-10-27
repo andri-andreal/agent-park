@@ -1,5 +1,12 @@
 # Agent Park
 
+Agen AI yang sedang kamu jalankan (Claude Code, Codex, OpenCode, Kiro, Pi, ...)
+hidup sebagai hewan di sebuah taman: masuk kantor saat bekerja, melompat saat
+butuh persetujuanmu, dan bermain saat menganggur. Tersedia sebagai screensaver
+terminal dan sebagai aplikasi 3D.
+
+![Agent Park di terminal: Claude dan Codex bekerja di meja masing-masing, OpenCode minta izin, Kiro dan Pi bermain di taman](docs/terminal.png)
+
 Secara bawaan, taman hanya dihuni hewan milik sesi Claude Code, Codex, dan OpenCode
 yang sedang berjalan (lihat **Kucing AI** di bawah), anak-anaknya untuk subagent, dan
 monster dari proses berat. Kalau belum ada sesi, taman kosong dengan tulisan
@@ -83,6 +90,20 @@ membacanya:
 - `wait`: agen meminta izin. Kucing melompat-lompat dengan label
   `butuh kamu!`.
 - `idle`: giliran selesai atau dihentikan. Kucing keluar dari markas dan bermain di taman.
+
+Hook juga mencatat model yang dipakai sesi, lalu model itu tampil di label
+hewan, misalnya `[Claude | opus-5-5]`. Sumbernya:
+
+| Agen | Sumber model |
+| --- | --- |
+| Claude Code | balasan terakhir di transkrip (`transcript_path` dari hook) |
+| Codex | `~/.codex/sessions/.../rollout-*-<session>.jsonl` |
+| Kiro | `~/.kiro/sessions/cli/<session>.jsonl`; mode Auto hanya tercatat `auto` |
+| OpenCode | dikirim plugin; cadangannya kolom `session_v2.model` di database OpenCode (dibuka read-only) |
+| Pi | `ctx.model` dari extension, termasuk saat `/model` atau Ctrl+P |
+
+Model baru muncul setelah hook pertama sesi itu berjalan. Agen tanpa hook
+tidak menampilkan model.
 
 Kucing AI tidak masuk biasa-biasa saja. Cara masuknya dipilih acak: jatuh
 sebagai **meteor** (KABOOM!), diturunkan **UFO** pakai sinar, keluar dari
@@ -229,6 +250,8 @@ Saat keluar, tampilan terminal dan kursor dikembalikan seperti semula.
 Ini animasi yang dijalankan manual; belum terhubung ke pengaturan screensaver sistem.
 
 ## Agent Park 3D
+
+![Agent Park 3D: Pi dan OpenCode bekerja di kantor, Claude minta izin bersama anak subagent Explore, Codex dan Kiro bermain di taman](docs/park3d.png)
 
 `park3d/` berisi versi 3D dari taman ini sebagai aplikasi desktop
 ([Tauri](https://tauri.app) dengan Three.js). Terminal tetap bisa dipakai seperti

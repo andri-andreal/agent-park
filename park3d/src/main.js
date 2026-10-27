@@ -190,6 +190,18 @@ function buildOffice() {
   return sign
 }
 
+// The free desk farthest from the taken ones, so neighbours' labels never overlap.
+function pickDesk() {
+  const taken = desks.filter((desk) => desk.user)
+  let best = null, gap = -1
+  for (const desk of desks) {
+    if (desk.user) continue
+    const nearest = Math.min(...taken.map((other) => other.position.distanceTo(desk.position)))
+    if (nearest > gap) [best, gap] = [desk, nearest]
+  }
+  return best
+}
+
 function drawScreen(desk, text, color) {
   if (desk.shown === text + color) return  // uploading a texture every frame is costly
   desk.shown = text + color
@@ -306,16 +318,18 @@ function addAnimal(id, info, parent = null) {
   const baby = Boolean(parent)
   const { group, legs } = buildAnimal(baby ? parent.species : info.species, parent?.color || info.color, baby)
   const name = label(baby ? info.type : info.name, baby ? "label sub" : "label")
+  const model = document.createElement("span")
+  model.className = "model"
   const speech = document.createElement("span")
   speech.className = "say"
-  name.element.append(speech)
+  name.element.append(model, speech)
   name.position.set(0, 2.6, 0)
   group.add(name)
   const start = parent ? parent.group.position.clone() : parkSpot()
   group.position.copy(start).setY(parent ? 0 : 30)  // grown-ups drop in from the sky
   scene.add(group)
   const animal = {
-    id, group, legs, name, speech, baby, parent, species: parent?.species || info.species, color: parent?.color || info.color,
+    id, group, legs, name, model, speech, baby, parent, species: parent?.species || info.species, color: parent?.color || info.color,
     label: info.name, status: info.status || "idle", target: parkSpot(), rest: 0, desk: null,
     phase: Math.random() * 10, falling: !parent, velocity: 0, leaving: false, seen: true,
   }
@@ -355,6 +369,7 @@ function apply(state) {
     animal.seen = true
     if (animal.status !== "wait" && info.status === "wait") say(`${info.name} butuh persetujuan kamu!`)
     animal.status = info.status
+    setText(animal.model, info.model || "")
     for (const sub of info.subagents) {
       const id = `${info.id}/${sub.id}`
       if (!animals.has(id)) {
@@ -410,11 +425,11 @@ async function connect() {
 // A made-up park for trying the page in a browser.
 function demo() {
   const cast = [
-    { id: "1", kind: "claude", name: "Claude", species: "kucing", color: "#ff8700" },
-    { id: "2", kind: "codex", name: "Codex", species: "anjing", color: "#00afff" },
-    { id: "3", kind: "opencode", name: "OpenCode", species: "kelinci", color: "#af87ff" },
-    { id: "4", kind: "kiro-cli", name: "Kiro", species: "tikus", color: "#875fff" },
-    { id: "5", kind: "pi", name: "Pi", species: "bebek", color: "#00d7ff" },
+    { id: "1", kind: "claude", name: "Claude", species: "kucing", color: "#ff8700", model: "opus-5-5" },
+    { id: "2", kind: "codex", name: "Codex", species: "anjing", color: "#00afff", model: "gpt-6.1-sol" },
+    { id: "3", kind: "opencode", name: "OpenCode", species: "kelinci", color: "#af87ff", model: "MiniMax-M3.1-Flash" },
+    { id: "4", kind: "kiro-cli", name: "Kiro", species: "tikus", color: "#875fff", model: "auto" },
+    { id: "5", kind: "pi", name: "Pi", species: "bebek", color: "#00d7ff", model: "glm-5.2" },
   ]
   const history = []
   let tick = 0
@@ -425,7 +440,7 @@ function demo() {
     apply({
       agents: cast.slice(0, Math.min(cast.length, 1 + Math.floor(tick / 2))).map((agent, index) => ({
         ...agent,
-        status: ["work", "idle", "work", "wait", "idle"][(index + Math.floor(tick / 12)) % 5],
+        status: ["work", "idle", "work", "wait", "idle"][(index + Math.floor(tick / 45)) % 5],
         subagents: index === 0 && tick % 30 > 8 ? [{ id: "a1", type: "Explore" }] : [],
       })),
       system: { cpu, ram: [11e9, 32e9], swap: [0, 0], load: cpu * 8, history: history.slice(-24), mood: cpu > 0.6 ? "busy" : "calm" },
@@ -505,7 +520,7 @@ function update(animal, dt, time) {
   }
   if (animal.status === "work") {
     if (!animal.desk) {
-      animal.desk = desks.find((desk) => !desk.user) || null
+      animal.desk = pickDesk()
       if (animal.desk) animal.desk.user = animal
     }
     const seat = animal.desk ? animal.desk.position.clone().add(new THREE.Vector3(-SEAT, 0, 0)) : null

@@ -15,7 +15,7 @@ import sys
 import time
 
 from screensaver import (AGENT_POLL, AGENTS, AgentMonitor, ProcessWatcher, RouterMonitor,
-                         SystemMonitor)
+                         SystemMonitor, short_model)
 
 
 def xterm_hex(index):
@@ -59,6 +59,7 @@ class State:
             agents.append({
                 "id": str(key), "kind": kind, "name": self.name(key, kind, sessions),
                 "species": species, "color": xterm_hex(shade), "status": status,
+                "model": short_model(self.agents.models.get(key, "")),
                 "subagents": [{"id": agent, "type": kind}
                               for agent, kind in self.agents.subagents.get(key, [])],
             })

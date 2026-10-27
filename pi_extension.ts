@@ -14,14 +14,15 @@ const HOOK = join(dirname(realpathSync(fileURLToPath(import.meta.url))), "agent_
 
 // One hook at a time, so a quick start -> end never lands out of order.
 let queue = Promise.resolve()
-function send(hook_event_name: string) {
+function send(hook_event_name: string, ctx?: any) {
+  const model = ctx?.model?.id
   queue = queue.then(() => new Promise<void>((done) => {
     try {
       const child = spawn("python3", [HOOK, "pi"], { stdio: ["pipe", "ignore", "ignore"] })
       child.on("error", () => done())
       child.on("close", () => done())
       child.stdin.on("error", () => {})
-      child.stdin.end(JSON.stringify({ hook_event_name }))
+      child.stdin.end(JSON.stringify(model ? { hook_event_name, model } : { hook_event_name }))
     } catch {
       done()  // a screensaver must never break the agent's turn
     }
@@ -29,10 +30,12 @@ function send(hook_event_name: string) {
 }
 
 export default function (pi: any) {
-  pi.on("session_start", async () => send("SessionStart"))
+  pi.on("session_start", async (_event: any, ctx: any) => send("SessionStart", ctx))
   // Once per prompt; agent_end also comes when you press Esc.
-  pi.on("agent_start", async () => send("UserPromptSubmit"))
-  pi.on("agent_end", async () => send("Stop"))
+  pi.on("agent_start", async (_event: any, ctx: any) => send("UserPromptSubmit", ctx))
+  pi.on("agent_end", async (_event: any, ctx: any) => send("Stop", ctx))
+  // /model or Ctrl+P: the animal's label follows without changing what it does.
+  pi.on("model_select", async (event: any) => send("ModelSelect", { model: event?.model }))
   // /new, /resume and /fork shut a session down and start the next at once.
   pi.on("session_shutdown", async (event: any) => send(event?.reason === "quit" ? "SessionEnd" : "Stop"))
 }

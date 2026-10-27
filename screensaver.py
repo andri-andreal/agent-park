@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
 from urllib.parse import urlsplit
@@ -139,8 +140,17 @@ SPARK = "_.:-=+*#%@"
 ROUTER = "ccx-router"  # local proxy started by ccx for OpenAI-compatible profiles
 ROUTER_WIDTH = 28
 ROUTER_SHOWN = 3  # more routers than this collapse into "+N lagi"
+MODEL_WIDTH = 18  # longer model names are cut in labels
 KITTENS_PER_CAT = 4  # more subagents than this would bury their parent
 SUBAGENT_STALE = 1800.0  # a subagent whose stop event never came
+
+
+def short_model(model):
+    """"anthropic/claude-opus-4-20250514" -> "opus-4": fits a label."""
+    model = model.rsplit("/", 1)[-1]
+    model = re.sub(r"-\d{8}$", "", model)
+    model = model.removeprefix("claude-")
+    return model if len(model) <= MODEL_WIDTH else model[:MODEL_WIDTH - 1] + "~"
 
 
 @dataclass(eq=False)
@@ -159,6 +169,7 @@ class Animal:
     agent_kind: str = ""
     name: str = ""
     status: str = "idle"  # work, wait (needs you) or idle
+    model: str = ""  # the agent's model, when its hook knows it
     sub: str = ""  # subagent id: this kitten helps the cat whose session is `agent`
     entrance: str = ""  # arrival effect still playing (see ENTRANCES)
     entry: float = 0.0  # seconds of that effect left
@@ -198,6 +209,7 @@ class AgentMonitor:
     def __init__(self, proc="/proc", state_dir=STATE_DIR, clock=time.time):
         self.proc, self.state_dir, self.clock = proc, state_dir, clock
         self.subagents = {}  # session key -> [(agent id, agent type)], set by poll
+        self.models = {}  # session key -> model name its hook reported, set by poll
         self.ticks_per_second = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
         self.history = {}
 
@@ -230,6 +242,8 @@ class AgentMonitor:
             return None
         if data.get("kind") != kind or data.get("state") not in ("work", "wait", "idle"):
             return None
+        if data.get("model"):
+            self.models[pid] = str(data["model"])
         if data["state"] == "work" and not busy and self.clock() - data.get("time", 0) > HOOK_STALE:
             return "idle"
         return data["state"]
@@ -256,7 +270,8 @@ class AgentMonitor:
             except (OSError, ValueError):
                 continue
             if data.get("state") in ("work", "wait", "idle"):
-                sessions.append((data.get("time", 0), name[len(kind) + 1:-5], data["state"]))
+                sessions.append((data.get("time", 0), name[len(kind) + 1:-5], data["state"],
+                                 str(data.get("model") or "")))
         return sorted(sessions, reverse=True)[:windows]
 
     def read_subagents(self, found):
@@ -332,7 +347,7 @@ class AgentMonitor:
                 parent = procs[parent][2]
             if pid not in sessions and parent in sessions:
                 sessions[parent][1] += ticks
-        found = {}
+        found, self.models = {}, {}
         for pid, (kind, ticks) in sessions.items():
             samples = self.history.get(pid, [])[-AGENT_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples
@@ -348,8 +363,10 @@ class AgentMonitor:
             shared = self.shared_sessions(kind, len(windows))
             for pid in windows[:len(shared)]:
                 del found[pid]
-            for _, session, status in shared:
+            for _, session, status, model in shared:
                 found[f"{kind}:{session}"] = kind, status
+                if model:
+                    self.models[f"{kind}:{session}"] = model
         self.subagents = self.read_subagents(found)
         return found
 
@@ -664,11 +681,14 @@ class World:
             self.say(f"{species.capitalize()} numpang lewat dulu...")
         self.animals.append(animal)
 
-    def sync_agents(self, sessions, subagents=None):
+    def sync_agents(self, sessions, subagents=None, models=None):
         """Match agent cats to {pid: (kind, status)} from AgentMonitor.poll,
-        and kittens to {pid: [(agent id, agent type)]} from its subagents."""
+        kittens to {pid: [(agent id, agent type)]} from its subagents and
+        names to {pid: model} from its models."""
+        models = models or {}
         for animal in self.animals:
             if animal.agent in sessions and not animal.sub:
+                animal.model = short_model(models.get(animal.agent, ""))
                 status = sessions[animal.agent][1]
                 if status == "wait" and animal.status != "wait":
                     self.say(f"{animal.name} butuh persetujuan kamu!")
@@ -701,6 +721,7 @@ class World:
                 self.rng.uniform(self.ground_top, max(self.ground_top, self.height - 6)),
                 self.rng.choice((-1, 1)), 0, phase=self.rng.random() * 10,
                 agent=pid, agent_kind=kind, name=name, status=status,
+                model=short_model(models.get(pid, "")),
                 state="arrive", entrance=entrance, entry=duration,
             ))
             self.say(message.format(name=name))
@@ -1401,9 +1422,14 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
             "wait": "butuh kamu!" if int(world.elapsed * 2) % 2 else "halo? izin dong!",
         }.get(animal.state)
         if animal.agent:
-            # The name always shows so you can tell whose cat is whose; slide
-            # it left at the right edge, where the office is.
-            text = f"[{animal.name}] {label or ''}".rstrip()
+            # The name (and model) always shows so you can tell whose cat is
+            # whose; slide it left at the right edge, where the office is.
+            # Seated cats skip the chatter so labels stay within their desk.
+            name = f"{animal.name} | {animal.model}" if animal.model and not animal.sub else animal.name
+            chatter = "" if animal.seated else label or ""
+            text = f"[{name}] {chatter}".rstrip()
+            if animal.seated and len(text) > DESK_WIDTH - 1:
+                text = text[:DESK_WIDTH - 3] + "~]"
             draw(screen, animal.y - 1, min(animal.x, width - len(text) - 1), text,
                  styles.get(animal.agent_kind, curses.A_BOLD))
         elif label:
@@ -1497,7 +1523,7 @@ def main(screen, wild=False):
                 elif key in (ord("r"), ord("R")):
                     world.start_raid()
                 if now >= next_poll:
-                    world.sync_agents(monitor.poll(now), monitor.subagents)
+                    world.sync_agents(monitor.poll(now), monitor.subagents, monitor.models)
                     for pid, name, detail in watcher.poll(now):
                         if world.threat(name, detail):
                             watcher.fought.add(pid)

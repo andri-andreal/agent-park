@@ -26,6 +26,8 @@ canvas.scene { display: block; }
 @keyframes fade { 0%, 80% { opacity: 1 } 100% { opacity: 0 } }
 .label { color: var(--text); font-weight: 700; font-size: 13px; text-align: center; white-space: nowrap;
   text-shadow: 0 1px 2px #000, 0 0 6px #000a; pointer-events: none; }
+.label .model { display: block; font-weight: 500; font-size: 11px; opacity: .75; }
+.label .model:empty { display: none; }
 .label .say { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
 .label.wait .say { color: #ffd84d; }
 .label.sub { font-size: 11px; font-weight: 600; opacity: .9; }
