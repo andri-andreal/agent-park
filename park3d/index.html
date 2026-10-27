@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Park 3D</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="hud">
+      <div id="title">Agent Park 3D</div>
+      <div id="message">Menunggu data dari park_state.py...</div>
+    </div>
+    <div id="system" hidden>
+      <div class="row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div><b id="cpu-text"></b></div>
+      <div class="row"><span>RAM</span><div class="bar"><i id="ram-bar"></i></div><b id="ram-text"></b></div>
+      <canvas id="spark" width="200" height="36"></canvas>
+      <div id="mood"></div>
+    </div>
+    <div id="log"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

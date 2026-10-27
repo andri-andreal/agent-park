@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window may listen to the park's state events.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
