@@ -1,198 +1,201 @@
 # Agent Park
 
-Agen AI yang sedang kamu jalankan (Claude Code, Codex, OpenCode, Kiro, Pi, ...)
-hidup sebagai hewan di sebuah taman: masuk kantor saat bekerja, melompat saat
-butuh persetujuanmu, dan bermain saat menganggur. Tersedia sebagai screensaver
-terminal dan sebagai aplikasi 3D.
+The AI agents you are running (Claude Code, Codex, OpenCode, Kiro, Pi, ...)
+live as animals in a park: they go to the office when working, jump when they
+need your approval, and play when idle. Available as a terminal screensaver and
+as a 3D app.
 
-![Agent Park di terminal: Claude dan Codex bekerja di meja masing-masing, OpenCode minta izin, Kiro dan Pi bermain di taman](docs/terminal.png)
+![Agent Park in the terminal: Claude and Codex working at their own desks, OpenCode asking for permission, Kiro and Pi playing in the park](docs/terminal.png)
 
-Secara bawaan, taman hanya dihuni hewan milik sesi Claude Code, Codex, dan OpenCode
-yang sedang berjalan (lihat **Kucing AI** di bawah), anak-anaknya untuk subagent, dan
-monster dari proses berat. Kalau belum ada sesi, taman kosong dengan tulisan
-`Taman sepi...`. Jalankan dengan `--semua` untuk ikut memunculkan binatang
-liar di bawah ini.
+By default, the park is only populated by animals belonging to running
+Claude Code, Codex, and OpenCode sessions (see **AI cats** below), their
+children for subagents, and monsters from heavy processes. If there are no
+sessions yet, the park is empty with the text `Taman sepi...`. Run with
+`--semua` to also spawn the wild animals listed below.
 
-Kucing, anjing, kelinci, bebek, dan tikus ASCII dengan kelakuan acak.
-Ada yang jalan santai, tidur, membersihkan bulu, melompat, atau lari mendadak.
-Kalau bertemu, mereka bisa saling sapa, kejar-kejaran, atau berantem kartun
-dengan awan debu dan tulisan POW/BONK, lalu kabur ke arah berlawanan.
+ASCII cats, dogs, rabbits, ducks, and mice with random behavior.
+Some stroll leisurely, sleep, groom themselves, jump, or suddenly dash off.
+When they meet, they may greet each other, chase one another, or get into a
+cartoon fight with dust clouds and POW/BONK text, then flee in opposite
+directions.
 
-Binatang baru sesekali masuk dari tepi layar; sebagian hanya numpang lewat
-lalu keluar lagi. Jumlah binatang menyesuaikan luas layar (maksimal delapan).
-Berjalan di Linux/macOS dengan Python 3, tanpa paket tambahan.
+New animals occasionally enter from the edge of the screen; some just pass
+through and leave again. The number of animals adjusts to the screen size
+(up to eight). Runs on Linux/macOS with Python 3, no extra packages.
 
-Ada empat tempat yang berganti otomatis setiap 35 detik:
+There are four places that switch automatically every 35 seconds:
 
-- **Taman**: pohon, bangku, rumput, dan awan bergerak.
-- **Hutan**: deretan pohon dan kunang-kunang.
-- **Pantai**: pohon kelapa, matahari, pasir, dan ombak bergerak.
-- **Desa**: rumah-rumah dan jalan.
+- **Park**: trees, a bench, grass, and moving clouds.
+- **Forest**: rows of trees and fireflies.
+- **Beach**: coconut trees, the sun, sand, and moving waves.
+- **Village**: houses and a road.
 
-Binatang berjalan di area tanah di bawah pemandangan. Pindah lokasi tidak
-menghapus binatang atau menghentikan interaksi. Saat dijeda, hitung mundur
-pergantian tempat juga berhenti.
+Animals walk on the ground area below the scenery. Changing location does not
+remove the animals or stop interactions. When paused, the countdown for
+switching places also stops.
 
-Monster menyerang kalau ada proses berat yang baru muncul di komputer! Semua hewan, termasuk yang tidur dan yang numpang
-lewat, menghentikan aktivitas untuk berkumpul, menangkis serangan dengan
-perisai, lalu kompak menyerang balik. Monster selalu kalah dan kabur;
-hewan-hewan merayakan kemenangan dengan lompatan dan konfeti sebelum kembali
-beraktivitas. Tidak ada hewan yang terluka.
+Monsters attack whenever a heavy process newly appears on the computer! All
+animals, including those sleeping and those just passing through, stop their
+activity to gather, block the attack with shields, then strike back together.
+The monster always loses and flees; the animals celebrate their victory with
+jumps and confetti before returning to their activities. No animal gets hurt.
 
-Monster bukan muncul acak. Monster adalah proses yang dimulai setelah
-screensaver dibuka (termasuk shell yang `exec` program lain), lalu memakai CPU
-rata-rata minimal 90% satu core selama 3 detik atau RAM minimal 1 GB. Contohnya
-`cargo build` atau test yang dijalankan agen. Nama monster diambil dari nama
-prosesnya, misalnya "Monster cargo (CPU 180%)". Proses yang sudah berjalan
-sebelum screensaver dibuka, serta agen AI itu sendiri, tidak pernah jadi
-monster. Satu proses hanya menyerang sekali, dan setelah pertempuran ada jeda
-30 detik. Batasnya bisa diubah di `MONSTER_CPU`, `MONSTER_RSS`, dan
-`RAID_COOLDOWN`. Tekan `r` untuk memicu serangan secara manual. Satu kejadian
-berlangsung sekitar 14 detik. Pergantian lokasi dan kedatangan hewan baru
-menunggu sampai pertempuran berakhir; tombol jeda tetap berfungsi.
+Monsters do not appear at random. A monster is a process started after the
+screensaver was opened (including a shell that `exec`s another program) that
+then uses on average at least 90% of one CPU core for 3 seconds or at least
+1 GB of RAM. For example, `cargo build` or a test run by an agent. The
+monster's name is taken from its process name, e.g. "Monster cargo (CPU 180%)".
+Processes already running before the screensaver was opened, as well as the AI
+agents themselves, never become monsters. Each process only attacks once, and
+after a battle there is a 30-second cooldown. The thresholds can be changed via
+`MONSTER_CPU`, `MONSTER_RSS`, and `RAID_COOLDOWN`. Press `r` to trigger an
+attack manually. One event lasts about 14 seconds. Location changes and the
+arrival of new animals wait until the battle is over; the pause key still
+works.
 
-Panel sistem: di pojok kanan atas ada kotak kecil ala btop berisi CPU, RAM,
-swap (kalau ada), load average, dan grafik CPU 24 detik terakhir. Di
-sebelahnya duduk kucing penjaga. Kalau CPU di atas 60%, kucingnya mulai
-khawatir (`CPU naik nih...`). Kalau CPU di atas 85% atau RAM di atas 90%,
-kucingnya panik, gemetar, dan berteriak `AWAS! CPU 93%!`. Panel hanya muncul
-di Linux pada terminal minimal 64x20.
+System panel: in the top-right corner there is a small btop-style box
+containing CPU, RAM, swap (if any), load average, and a graph of the last
+24 seconds of CPU. Next to it sits a guard cat. If CPU goes above 60%, the cat
+starts to worry (`CPU naik nih...`). If CPU goes above 85% or RAM above 90%,
+the cat panics, trembles, and shouts `AWAS! CPU 93%!`. The panel only appears
+on Linux in terminals at least 64x20.
 
-Kucing AI: setiap sesi **Claude Code**, **Codex CLI**, atau **OpenCode** yang
-sedang berjalan mendapat hewan sendiri: kucing oranye `[Claude]`, anjing biru
-`[Codex]`, atau kelinci ungu muda `[OpenCode]`. Untuk mudahnya, semuanya
-disebut "kucing AI" di bawah. Provider atau model yang dipakai tidak
-berpengaruh: OpenCode dengan DeepSeek, Gemini, atau model lokal tetap jadi
-kelinci `[OpenCode]`.
-Sesi kedua dan berikutnya diberi nomor, misalnya `[Claude 2]`. Status dibaca
-dari `/proc` setiap detik berdasarkan pemakaian CPU rata-rata 3 detik terakhir:
-kalau sesi sedang bekerja, kucingnya lari ke **Markas AI**, area berpagar di
-sisi kanan tanah yang berisi deretan komputer. Setiap kucing mendapat meja
-sendiri, duduk menghadap komputernya, lalu mengetik heboh sambil berteriak
-`tik tak tuk!`, `ngoding!!`, dan sejenisnya, sementara layar komputernya
-menampilkan `>_ make`, progress bar, dan lain-lain. Komputer yang kosong
-menampilkan `zz`. Kalau semua meja terisi, kucing sisanya lari-lari di dalam
-markas. Papan di atas
-markas menunjukkan berapa yang sedang kerja. Begitu sesi berhenti, kucingnya
-keluar dari markas dan bermain di taman seperti hewan lain (tetapi tidak ikut
-berantem). Hewan biasa tidak masuk ke markas. Markas hanya muncul kalau ada
-kucing AI dan terminal minimal 72 kolom; di layar sempit kucing bekerja di
-seluruh taman. Begitu sesi ditutup, kucingnya pamit dan
-berjalan keluar layar. Kucing AI tidak ikut berantem, tetapi tetap ikut
-melawan monster. Fitur ini hanya berjalan di Linux.
+AI cats: every running **Claude Code**, **Codex CLI**, or **OpenCode** session
+gets its own animal: an orange cat `[Claude]`, a blue dog `[Codex]`, or a
+light purple rabbit `[OpenCode]`. For simplicity, they are all called
+"AI cats" below. The provider or model used does not matter: OpenCode with
+DeepSeek, Gemini, or a local model is still an `[OpenCode]` rabbit.
+The second and subsequent sessions are numbered, e.g. `[Claude 2]`. Status is
+read from `/proc` every second based on average CPU usage over the last
+3 seconds: if the session is working, the cat runs to **AI HQ**, a fenced area
+on the right side of the ground containing a row of computers. Each cat gets
+its own desk, sits facing its computer, then types frantically while shouting
+`tik tak tuk!`, `ngoding!!`, and the like, while its computer screen shows
+`>_ make`, a progress bar, and so on. An empty computer shows `zz`. If all
+desks are taken, the remaining cats run around inside the HQ. The sign above
+the HQ shows how many are currently working. Once a session stops, its cat
+leaves the HQ and plays in the park like the other animals (but does not join
+the fights). Ordinary animals do not enter the HQ. The HQ only appears if there
+are AI cats and the terminal is at least 72 columns wide; on narrow screens the
+cats work across the whole park. Once a session is closed, its cat says goodbye
+and walks off the screen. AI cats do not join the fights, but they do join in
+fighting the monsters. This feature only runs on Linux.
 
-Tanpa pengaturan tambahan, status kerja hanya perkiraan dari CPU. Supaya
-akurat, pasang hook yang memanggil `agent_hook.py`. Script ini menulis status
-sesi ke `$XDG_RUNTIME_DIR/agent-park/<pid>.json`, lalu screensaver
-membacanya:
+Without extra configuration, the work status is only an estimate from CPU. For
+accuracy, install a hook that calls `agent_hook.py`. This script writes the
+session status to `$XDG_RUNTIME_DIR/agent-park/<pid>.json`, which the
+screensaver then reads:
 
-- `work`: kamu mengirim prompt atau agen sedang memakai tool. Kucing duduk di komputernya di markas dan mengetik.
-- `wait`: agen meminta izin. Kucing melompat-lompat dengan label
-  `butuh kamu!`.
-- `idle`: giliran selesai atau dihentikan. Kucing keluar dari markas dan bermain di taman.
+- `work`: you sent a prompt or the agent is using a tool. The cat sits at its computer in the HQ and types.
+- `wait`: the agent is asking for permission. The cat jumps around with the
+  label `butuh kamu!`.
+- `idle`: the turn is finished or stopped. The cat leaves the HQ and plays in the park.
 
-Hook juga mencatat model yang dipakai sesi, lalu model itu tampil di label
-hewan, misalnya `[Claude | opus-5-5]`. Sumbernya:
+The hook also records the model used by the session, and that model then
+appears on the animal's label, e.g. `[Claude | opus-5-5]`. The sources:
 
-| Agen | Sumber model |
+| Agent | Model source |
 | --- | --- |
-| Claude Code | balasan terakhir di transkrip (`transcript_path` dari hook) |
+| Claude Code | the last reply in the transcript (`transcript_path` from the hook) |
 | Codex | `~/.codex/sessions/.../rollout-*-<session>.jsonl` |
-| Kiro | `~/.kiro/sessions/cli/<session>.jsonl`; mode Auto hanya tercatat `auto` |
-| OpenCode | dikirim plugin; cadangannya kolom `session_v2.model` di database OpenCode (dibuka read-only) |
-| Pi | `ctx.model` dari extension, termasuk saat `/model` atau Ctrl+P |
+| Kiro | `~/.kiro/sessions/cli/<session>.jsonl`; Auto mode is only recorded as `auto` |
+| OpenCode | sent by the plugin; its fallback is the `session_v2.model` column in the OpenCode database (opened read-only) |
+| Pi | `ctx.model` from the extension, including when using `/model` or Ctrl+P |
 
-Model baru muncul setelah hook pertama sesi itu berjalan. Agen tanpa hook
-tidak menampilkan model.
+A new model appears after that session's first hook runs. Agents without a hook
+do not display a model.
 
-Kucing AI tidak masuk biasa-biasa saja. Cara masuknya dipilih acak: jatuh
-sebagai **meteor** (KABOOM!), diturunkan **UFO** pakai sinar, keluar dari
-**portal**, **terjun payung**, atau **ter-teleport** dari karakter acak.
-Kalau monster menyerang saat kucing sedang mendarat, kucing langsung ikut
-bertahan. Anak subagent muncul dengan efek "POP!" setelah induknya
-mendarat.
+AI cats do not just walk in plainly. Their entrance is chosen at random: they
+fall as a **meteor** (KABOOM!), get lowered by a **UFO** with a beam, come out
+of a **portal**, **parachute** in, or get **teleported** from a random
+character. If a monster attacks while a cat is landing, the cat immediately
+joins the defense. Subagent children appear with a "POP!" effect after their
+parent has landed.
 
-Subagent muncul sebagai **anak** dari hewan induknya (anak kucing, anak
-anjing, atau anak kelinci) berlabel jenisnya (misalnya
-`[Explore]`). Anak-anak ini berlarian mengitari induknya dan pergi saat
-subagent selesai. Paling banyak 4 anak per induk. Anak yang
-event `SubagentStop`-nya tidak pernah datang dihapus setelah 30 menit.
+Subagents appear as **children** of their parent animal (kitten, puppy, or
+baby rabbit) labeled with their type (e.g. `[Explore]`). These children run
+around their parent and leave when the subagent finishes. At most 4 children
+per parent. A child whose `SubagentStop` event never arrives is removed after
+30 minutes.
 
-Claude Code (`~/.claude/settings.json`), satu entri per event
+Claude Code (`~/.claude/settings.json`), one entry per event
 `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
 `SubagentStart`, `SubagentStop`, `PermissionRequest`, `Notification`, `Stop`,
 `StopFailure`, `SessionStart`, `SessionEnd`:
 
 ```json
 {"hooks": {"Stop": [{"hooks": [{"type": "command", "timeout": 5,
-  "command": "python3 /path/ke/screensaver/agent_hook.py claude"}]}]}}
+  "command": "python3 /path/to/screensaver/agent_hook.py claude"}]}]}}
 ```
 
-Codex CLI (`~/.codex/hooks.json`) memakai format yang sama dengan argumen
-`codex`, untuk event `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+Codex CLI (`~/.codex/hooks.json`) uses the same format with the argument
+`codex`, for the events `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
 `SubagentStart`, `SubagentStop`, `PermissionRequest`, `Stop`, `Interrupt`,
-`SessionStart`, `SessionEnd`. Setujui hook-nya sekali lewat `/hooks` di Codex.
+`SessionStart`, `SessionEnd`. Approve the hook once via `/hooks` in Codex.
 
-Codex menjalankan hook dari satu proses latar (`codex app-server`) yang
-melayani semua jendela Codex, jadi tidak diketahui jendela mana yang punya
-sesi tertentu. Karena itu status Codex disimpan per sesi
-(`codex-<session_id>.json`), dan kucing Codex diambil dari sesi terbaru
-sebanyak jendela Codex yang sedang terbuka. Jendela yang belum mengirim event
-memakai perkiraan CPU.
+Codex runs hooks from a single background process (`codex app-server`) that
+serves all Codex windows, so it is not known which window owns a given session.
+Because of this, Codex status is stored per session
+(`codex-<session_id>.json`), and Codex cats are taken from the most recent
+sessions, as many as there are open Codex windows. Windows that have not yet
+sent an event use the CPU estimate.
 
-Kalau profil [ccx](../ccx) memakai router (`ccx-router`), kotak **router ccx**
-muncul di kiri atas. Isinya nama profil, port lokal, host upstream (tanpa path
-atau kredensial), lama berjalan, dan kucing Claude yang memakainya. Panah
-`>-->` bergerak saat router atau kucingnya sedang bekerja; kalau tidak, tertulis
-`diam` dan jumlah koneksi terbuka. Paling banyak tiga router ditampilkan,
-sisanya diringkas menjadi `+N lagi`. Router tidak pernah jadi monster.
+If the [ccx](../ccx) profile uses a router (`ccx-router`), a **ccx router** box
+appears in the top-left. It contains the profile name, local port, upstream
+host (without path or credentials), uptime, and the Claude cat using it. The
+arrow `>-->` moves when the router or its cat is working; otherwise it shows
+`diam` and the number of open connections. At most three routers are shown, and
+the rest are summarized as `+N lagi`. A router never becomes a monster.
 
-OpenCode tidak punya hook berupa perintah, jadi statusnya dikirim lewat plugin
-`opencode_plugin.js`. Plugin ini mengubah event sesi OpenCode (sibuk, minta
-izin atau bertanya, selesai) menjadi event ala Claude, lalu memanggil
-`agent_hook.py opencode`. Subagent OpenCode (misalnya `@explore`) muncul sebagai
-anak kelinci. Plugin ini mendukung OpenCode 1.x dan 2.x. Pasang dengan symlink:
+OpenCode has no command-based hooks, so its status is sent via the
+`opencode_plugin.js` plugin. This plugin turns OpenCode session events (busy,
+asking for permission or asking a question, finished) into Claude-style events,
+then calls `agent_hook.py opencode`. OpenCode subagents (e.g. `@explore`)
+appear as baby rabbits. This plugin supports OpenCode 1.x and 2.x. Install it
+with a symlink:
 
 ```sh
 mkdir -p ~/.config/opencode/plugins
 ln -s "$PWD/opencode_plugin.js" ~/.config/opencode/plugins/agent-park.js
-opencode service restart   # OpenCode 2.x; di 1.x cukup buka ulang OpenCode
+opencode service restart   # OpenCode 2.x; on 1.x just reopen OpenCode
 ```
 
-Mulai OpenCode 2.x, semua jendela dilayani satu proses latar
-(`opencode serve --service`), dan plugin berjalan di situ. Proses latar itu
-sendiri tidak dianggap sesi. Seperti Codex, status disimpan per sesi
-(`opencode-<session_id>.json`) dan dibagikan ke jendela OpenCode yang terbuka.
+Starting with OpenCode 2.x, all windows are served by a single background
+process (`opencode serve --service`), and the plugin runs there. That
+background process itself is not counted as a session. Like Codex, status is
+stored per session (`opencode-<session_id>.json`) and shared with the open
+OpenCode windows.
 
-Daftar agen yang dikenali:
+List of recognized agents:
 
-| Agen | Proses | Hewan | Status akurat |
+| Agent | Process | Animal | Accurate status |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | kucing oranye | hook (di atas) |
-| Codex CLI | `codex` | anjing biru | hook (di atas) |
-| OpenCode | `opencode` | kelinci ungu muda | plugin (di atas) |
-| Kiro CLI | `kiro-cli`, `kiro-cli-chat` | tikus ungu | hook (di bawah) |
-| Aider | `aider` | tikus hijau | perkiraan CPU |
-| Goose | `goose` | bebek kuning | perkiraan CPU |
-| Crush | `crush` | kucing merah muda | perkiraan CPU |
-| Amp | `amp` | anjing merah | perkiraan CPU |
-| Pi | `pi` | bebek biru muda | extension (di bawah) |
-| Strix | `strix` | anjing merah tua | perkiraan CPU |
+| Claude Code | `claude` | orange cat | hook (above) |
+| Codex CLI | `codex` | blue dog | hook (above) |
+| OpenCode | `opencode` | light purple rabbit | plugin (above) |
+| Kiro CLI | `kiro-cli`, `kiro-cli-chat` | purple mouse | hook (below) |
+| Aider | `aider` | green mouse | CPU estimate |
+| Goose | `goose` | yellow duck | CPU estimate |
+| Crush | `crush` | pink cat | CPU estimate |
+| Amp | `amp` | red dog | CPU estimate |
+| Pi | `pi` | light blue duck | extension (below) |
+| Strix | `strix` | dark red dog | CPU estimate |
 
-Pi berjalan di atas Node tetapi mengganti nama prosesnya menjadi `pi`, jadi
-tetap terdeteksi. Statusnya dikirim lewat extension `pi_extension.ts`: mulai
-dan selesai menjawab prompt (termasuk Esc), serta keluar. Pi tidak punya
-prompt izin bawaan atau subagent, jadi tidak ada `butuh kamu!` maupun anak
-bebek. Pasang dengan symlink, lalu buka ulang Pi:
+Pi runs on top of Node but renames its process to `pi`, so it is still
+detected. Its status is sent via the `pi_extension.ts` extension: starting and
+finishing answering a prompt (including Esc), and exiting. Pi has no built-in
+permission prompt or subagents, so there is no `butuh kamu!` or baby ducks.
+Install it with a symlink, then reopen Pi:
 
 ```sh
 mkdir -p ~/.pi/agent/extensions
 ln -s "$PWD/pi_extension.ts" ~/.pi/agent/extensions/agent-park.ts
 ```
 
-Kiro CLI hanya mendukung hook di agen kustom. Cara paling aman adalah menyalin
-agen bawaan supaya semua tool tetap aktif. Setelah itu tambahkan bagian `hooks`
-di bawah ke `~/.kiro/agents/agent-park.json`, periksa, lalu jadikan default:
+Kiro CLI only supports hooks in custom agents. The safest way is to copy the
+built-in agent so that all tools stay active. After that, add the `hooks`
+section below to `~/.kiro/agents/agent-park.json`, validate it, then make it
+the default:
 
 ```sh
 EDITOR=true kiro-cli agent create agent-park --from kiro_default
@@ -200,91 +203,95 @@ kiro-cli agent validate --path ~/.kiro/agents/agent-park.json
 kiro-cli agent set-default agent-park
 ```
 
-Agen yang hanya berisi `hooks` bisa kehilangan akses ke tool. Nama event Kiro memakai camelCase,
-dan `agent_hook.py` menerimanya apa adanya. Kiro hanya punya lima event ini dan
-tidak punya event saat meminta izin, jadi hewannya tidak bisa menampilkan
-`butuh kamu!`.
+An agent that only contains `hooks` may lose access to tools. Kiro event names
+use camelCase, and `agent_hook.py` accepts them as-is. Kiro only has these five
+events and has no event for when it asks for permission, so its animal cannot
+display `butuh kamu!`.
 
 ```json
 {"hooks": {
-  "agentSpawn": [{"command": "python3 /path/ke/screensaver/agent_hook.py kiro-cli"}],
-  "userPromptSubmit": [{"command": "python3 /path/ke/screensaver/agent_hook.py kiro-cli"}],
-  "preToolUse": [{"command": "python3 /path/ke/screensaver/agent_hook.py kiro-cli"}],
-  "postToolUse": [{"command": "python3 /path/ke/screensaver/agent_hook.py kiro-cli"}],
-  "stop": [{"command": "python3 /path/ke/screensaver/agent_hook.py kiro-cli"}]
+  "agentSpawn": [{"command": "python3 /path/to/screensaver/agent_hook.py kiro-cli"}],
+  "userPromptSubmit": [{"command": "python3 /path/to/screensaver/agent_hook.py kiro-cli"}],
+  "preToolUse": [{"command": "python3 /path/to/screensaver/agent_hook.py kiro-cli"}],
+  "postToolUse": [{"command": "python3 /path/to/screensaver/agent_hook.py kiro-cli"}],
+  "stop": [{"command": "python3 /path/to/screensaver/agent_hook.py kiro-cli"}]
 }}
 ```
 
-Agen lain bisa ditambahkan di tabel `AGENTS` di `screensaver.py` (nama proses,
-nama, jenis hewan, warna). Hewannya juga bisa diganti di tabel itu, misalnya
-`"bebek"` atau `"tikus"`. Agen yang terdeteksi tetapi tidak punya hook memakai
-perkiraan CPU. Syaratnya, nama prosesnya di `/proc/<pid>/comm` harus khas.
-Agen yang berjalan sebagai `node` biasa tidak bisa dibedakan dengan cara ini.
+Other agents can be added to the `AGENTS` table in `screensaver.py` (process
+name, name, animal type, color). Their animal can also be changed in that
+table, e.g. `"bebek"` (duck) or `"tikus"` (mouse). A detected agent without a
+hook uses the CPU estimate. The requirement is that its process name in
+`/proc/<pid>/comm` must be distinctive. An agent running as a plain `node`
+cannot be distinguished this way.
 
-Claude tidak mengirim event saat kamu menekan Esc. Karena itu, status `work`
-yang lebih tua dari 90 detik kembali dibaca dari CPU.
+Claude does not send an event when you press Esc. Because of this, a `work`
+status older than 90 seconds is read from CPU again.
 
-Jalankan dari folder proyek:
+Run from the project folder:
 
 ```sh
-python3 screensaver.py          # hanya kucing AI
-python3 screensaver.py --semua  # plus binatang liar
+python3 screensaver.py          # AI cats only
+python3 screensaver.py --semua  # plus wild animals
 ```
 
-Aktifkan fullscreen dari aplikasi terminal kamu (biasanya **F11** di Linux).
-Animasi otomatis mengikuti ukuran terminal, termasuk setelah resize.
+Enable fullscreen from your terminal application (usually **F11** on Linux).
+The animation automatically follows the terminal size, including after a
+resize.
 
-| Tombol | Fungsi |
+| Key | Function |
 | --- | --- |
-| `q` / `Esc` | Keluar |
-| `Spasi` | Jeda / lanjut |
-| `+` / `-` | Tambah / kurangi kecepatan |
-| `n` | Datangkan binatang yang numpang lewat, kalau layar belum penuh (hanya dengan `--semua`) |
-| `l` | Pindah ke lokasi berikutnya |
-| `r` | Picu serangan monster; semua hewan bekerja sama sampai menang |
-| `a` | Aktifkan / matikan pergantian lokasi otomatis (menetap di tempat sekarang) |
-| `s` | Tampilkan / sembunyikan panel sistem |
-| `Ctrl+C` | Keluar |
+| `q` / `Esc` | Quit |
+| `Space` | Pause / resume |
+| `+` / `-` | Increase / decrease speed |
+| `n` | Bring in a passing animal, if the screen is not yet full (only with `--semua`) |
+| `l` | Move to the next location |
+| `r` | Trigger a monster attack; all animals cooperate until they win |
+| `a` | Toggle automatic location switching (stay in the current place) |
+| `s` | Show / hide the system panel |
+| `Ctrl+C` | Quit |
 
-Saat keluar, tampilan terminal dan kursor dikembalikan seperti semula.
-Ini animasi yang dijalankan manual; belum terhubung ke pengaturan screensaver sistem.
+On exit, the terminal display and cursor are restored to how they were. This is
+a manually run animation; it is not yet connected to the system screensaver
+settings.
 
 ## Agent Park 3D
 
-![Agent Park 3D: Pi dan OpenCode bekerja di kantor, Claude minta izin bersama anak subagent Explore, Codex dan Kiro bermain di taman](docs/park3d.png)
+![Agent Park 3D: Pi and OpenCode working in the office, Claude asking for permission together with an Explore subagent child, Codex and Kiro playing in the park](docs/park3d.png)
 
-`park3d/` berisi versi 3D dari taman ini sebagai aplikasi desktop
-([Tauri](https://tauri.app) dengan Three.js). Terminal tetap bisa dipakai seperti
-biasa. Logika deteksi agen tetap ada di Python: aplikasi menjalankan
-`park_state.py`, yang mencetak status taman sebagai satu baris JSON per detik
-(agen, subagent, CPU/RAM, monster), lalu dunia 3D menggerakkan hewannya sendiri
-berdasarkan status itu. Agen baru cukup ditambahkan di tabel `AGENTS`, dan kedua
-tampilan langsung kebagian.
+`park3d/` contains a 3D version of this park as a desktop app
+([Tauri](https://tauri.app) with Three.js). The terminal can still be used as
+usual. The agent detection logic stays in Python: the app runs
+`park_state.py`, which prints the park status as one line of JSON per second
+(agents, subagents, CPU/RAM, monsters), and the 3D world then moves its own
+animals based on that status. New agents only need to be added to the `AGENTS`
+table, and both views get them right away.
 
 ```sh
 cd park3d
 pnpm install
-pnpm tauri dev                 # jalankan sambil mengembangkan
+pnpm tauri dev                 # run while developing
 pnpm tauri build --no-bundle   # binary: src-tauri/target/release/park3d
 ```
 
-Opsi tampilan, sebagai argumen aplikasi (`park3d --low --fps`) atau di URL
-browser (`?low&fps`):
+Display options, as app arguments (`park3d --low --fps`) or in the browser URL
+(`?low&fps`):
 
-| Opsi | Fungsi |
+| Option | Function |
 | --- | --- |
-| `--low` | Tanpa bayangan dan antialiasing, resolusi 1×. Paling ringan |
-| `--fps` | Tampilkan FPS dan jumlah draw call di pojok kiri atas |
-| `--cap=N` | Batas FPS (bawaan 30; `--cap=0` tanpa batas) |
-| `--smooth` | 60 FPS, sama dengan `--cap=0` |
+| `--low` | No shadows or antialiasing, 1× resolution. Lightest |
+| `--fps` | Show FPS and draw call count in the top-left corner |
+| `--cap=N` | FPS cap (default 30; `--cap=0` for no cap) |
+| `--smooth` | 60 FPS, same as `--cap=0` |
 
-Butuh Rust, Node, pnpm, dan `webkit2gtk-4.1`. `python3 park_state.py --once`
-menampilkan satu potongan status, dan `pnpm dev` lalu membuka
-`http://localhost:1420/?demo` menampilkan dunia 3D dengan agen contoh di browser
-biasa. Di Wayland, aplikasi menyetel `WEBKIT_DISABLE_DMABUF_RENDERER=1` supaya
-WebGL tidak hitam. Lokasi script status bisa diganti lewat `PARK_STATE`.
+Requires Rust, Node, pnpm, and `webkit2gtk-4.1`. `python3 park_state.py --once`
+shows a single status snapshot, and `pnpm dev` followed by opening
+`http://localhost:1420/?demo` shows the 3D world with sample agents in a regular
+browser. On Wayland, the app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` so that
+WebGL is not black. The location of the status script can be changed via
+`PARK_STATE`.
 
-Uji simulasi interaksi, binatang lewat, dan resize dengan:
+Test the interaction simulation, passing animals, and resize with:
 
 ```sh
 python3 -m unittest -v
