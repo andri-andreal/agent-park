@@ -139,7 +139,8 @@ SYSTEM_WIDTH = 28
 SPARK = "_.:-=+*#%@"
 ROUTER = "ccx-router"  # local proxy started by ccx for OpenAI-compatible profiles
 ROUTER_WIDTH = 28
-ROUTER_SHOWN = 3  # more routers than this collapse into "+N lagi"
+ROUTER_SHOWN = 3  # more routers than this collapse into "+N more"
+STATS_WIDTH = 22  # the park-stats box in the top-left when no router is shown
 MODEL_WIDTH = 18  # longer model names are cut in labels
 KITTENS_PER_CAT = 4  # more subagents than this would bury their parent
 SUBAGENT_STALE = 1800.0  # a subagent whose stop event never came
@@ -751,7 +752,7 @@ class World:
                 phase=self.rng.random() * math.tau, agent=key, agent_kind=leader.agent_kind,
                 name=name, sub=agent,
             ))
-            self.say(f"{leader.name} memanggil {name} untuk membantu!")
+            self.say(f"{leader.name} called {name} to help out!")
 
     def follow(self, kitten, dt):
         """Kittens scamper in loops around the cat that called them."""
@@ -1163,7 +1164,7 @@ def render_entrance(screen, world, animal, style):
         else:
             sprite(y)
             draw(screen, y + height, x - 1, "( ~ ~ ~ )"[: width + 2], curses.A_DIM)
-            label(f"[{animal.name}] ugh, pusing...")
+            label(f"[{animal.name}] ugh, dizzy...")
     elif animal.entrance == "ufo":
         flight = min(1, progress / 0.35)
         ux = (middle - 6) * flight + (1 - flight) * -14
@@ -1295,10 +1296,10 @@ def render_system(screen, system, elapsed, styles):
 
 def duration(seconds):
     if seconds < 60:
-        return f"{int(seconds)}d"
+        return f"{int(seconds)}s"
     if seconds < 3600:
         return f"{int(seconds // 60)}m"
-    return f"{int(seconds // 3600)}j"
+    return f"{int(seconds // 3600)}h"
 
 
 def render_routers(screen, world, routers, styles, crowded):
@@ -1308,7 +1309,7 @@ def render_routers(screen, world, routers, styles, crowded):
     if not routers or width < (80 if crowded else 40) or height < 20:
         return
     left, top, inner = 1, 2, ROUTER_WIDTH - 2
-    # Stay above the ground, keeping a row for "+N lagi".
+    # Stay above the ground, keeping a row for "+N more".
     shown = routers[:max(1, min(ROUTER_SHOWN, (world.ground_top - top - 3) // 3))]
     rows = 3 * len(shown) + (len(routers) > len(shown))
     title = f"+- router ccx ({len(routers)}) "
@@ -1332,15 +1333,56 @@ def render_routers(screen, world, routers, styles, crowded):
             # Packets running towards the upstream.
             step = int(world.elapsed * 8) % 3
             flow = "".join(">" if i % 3 == step else "-" for i in range(8))[::-1]
-            status = f"{flow} kirim"
+            status = f"{flow} send"
         else:
-            status = "........ diam"
+            status = "........ idle"
         draw(screen, y + 2, x, status, style if busy else curses.A_DIM)
-        owner = (f"[{cat.name}]" if cat else f"{router.connections} kon")[:inner - 14]
+        owner = (f"[{cat.name}]" if cat else f"{router.connections} conn")[:inner - 14]
         draw(screen, y + 2, left + inner - len(owner), owner,
              style_of(styles, cat) if cat else curses.A_DIM)
     if len(routers) > len(shown):
         draw(screen, top + rows, left + 2, f"+{len(routers) - len(shown)} more", curses.A_DIM)
+
+
+def render_stats(screen, world, styles, crowded):
+    """A small box in the top-left with at-a-glance park stats.
+
+    Shares the corner with the ccx-router box, so it only shows when no
+    router is drawn there. Everything comes from existing world state, so
+    the box costs nothing extra to compute.
+    """
+    height, width = screen.getmaxyx()
+    # Match render_routers' gating so the corner stays readable on small screens.
+    # During a raid the banner owns the top rows, so step aside for it.
+    if world.raid or width < (80 if crowded else 40) or height < 20:
+        return
+    left, top, inner = 1, 2, STATS_WIDTH - 2
+    agents = [a for a in world.animals if a.agent and not a.sub]
+    working = sum(1 for a in agents if a.status == "work")
+    if world.auto_place:
+        place_line = f"{world.place} ({max(1, math.ceil(world.place_timer))}s)"
+    else:
+        place_line = f"{world.place} (locked)"
+    stats = (
+        ("up", duration(world.elapsed)),
+        ("animals", f"{len(world.animals)}/{world.capacity}"),
+        ("agents", f"{working}/{len(agents)}"),
+        ("wins", str(world.victories)),
+        ("place", place_line),
+    )
+    title = "+- park "
+    lines = [title + "-" * (STATS_WIDTH - 1 - len(title)) + "+"]
+    lines += ["|" + " " * inner + "|"] * len(stats)
+    lines.append("+" + "-" * inner + "+")
+    for row, line in enumerate(lines):
+        draw(screen, top + row, left, line, curses.A_DIM)
+    accent = styles.get("claude", curses.A_BOLD)
+    for row, (name, value) in enumerate(stats):
+        y = top + 1 + row
+        draw(screen, y, left + 2, name, curses.A_DIM)
+        value = value[:inner - len(name) - 3]
+        draw(screen, y, left + inner - len(value), value,
+             accent if name == "wins" and world.victories else curses.A_DIM)
 
 
 def render_office(screen, world, styles):
@@ -1376,7 +1418,14 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
         mode = "location held"
     else:
         mode = f"next {max(1, math.ceil(world.place_timer))}s" if world.auto_place else "locked"
-    draw(screen, 0, 2, f"AGENT PARK / {world.place.upper()} / {mode}", curses.A_BOLD)
+    header = f"AGENT PARK / {world.place.upper()} / {mode}"
+    draw(screen, 0, 2, header, curses.A_BOLD)
+    # A clock centred on the top row, between the header and the system panel.
+    clock = time.strftime("%H:%M:%S")
+    clock_x = (width - len(clock)) // 2
+    right_edge = (width - SYSTEM_WIDTH - 1) if (system is not None and system.cpu is not None) else width
+    if clock_x > 2 + len(header) + 1 and clock_x + len(clock) < right_edge - 1:
+        draw(screen, 0, clock_x, clock, curses.A_DIM)
     if world.notice_timer > 0:
         draw(screen, 1, 2, world.notice, curses.A_DIM)
     render_place(screen, world, styles, stars)
@@ -1446,6 +1495,8 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
         render_raid(screen, world, styles)
     render_system(screen, system, world.elapsed, styles)
     render_routers(screen, world, routers, styles, system is not None)
+    if not routers:  # the stats box shares the top-left corner with routers
+        render_stats(screen, world, styles, system is not None)
     if not world.animals and not world.raid:
         hint = "The park is quiet... run an AI agent (claude, codex, opencode, ...) and the animals will come."
         draw(screen, (world.ground_top + height) // 2, max(0, (width - len(hint)) // 2), hint, curses.A_DIM)

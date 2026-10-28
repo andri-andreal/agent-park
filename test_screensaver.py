@@ -13,8 +13,8 @@ from unittest import mock
 import agent_hook
 import park_state
 from screensaver import (AgentMonitor, ENTRANCES, PLACE_DURATION, PLACES, RAID_COOLDOWN,
-                         SPRITES, WORK_CHATTER, ProcessWatcher, RouterMonitor, SystemMonitor, World,
-                         render, short_model)
+                         SPRITES, WORK_CHATTER, ProcessWatcher, Router, RouterMonitor, SystemMonitor,
+                         World, render, short_model)
 
 
 class Screen:
@@ -148,6 +148,20 @@ class WorldTests(unittest.TestCase):
                         self.assertIn(label, "".join(screen.rows[2]))
                     world.update_raid(3)
                 world.change_place()
+
+    def test_clock_shows_centred_on_wide_screens_only(self):
+        import re
+        clock = re.compile(r"\d\d:\d\d:\d\d")
+        # Wide enough for a clock between the header and the right edge.
+        world = World(100, 24, seed=1)
+        screen = Screen(24, 100)
+        render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
+        self.assertTrue(clock.search("".join(screen.rows[0])))
+        # Too narrow: the clock steps aside rather than overlap the header.
+        world = World(40, 24, seed=1)
+        screen = Screen(24, 40)
+        render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
+        self.assertFalse(clock.search("".join(screen.rows[0])))
 
     def test_visitors_cross_and_leave_in_both_directions(self):
         for direction in (-1, 1):
@@ -512,6 +526,12 @@ class AgentTests(unittest.TestCase):
                 ("11", "Claude 2", "kucing", "#ff8700", "work"),
                 ("12", "Codex", "anjing", "#00afff", "idle")])
             self.assertEqual(snapshot["agents"][1]["subagents"], [{"id": "a1", "type": "Explore"}])
+            # The stats block lets other views show a scoreboard like the terminal.
+            self.assertEqual(snapshot["stats"]["agents"], 3)
+            self.assertEqual(snapshot["stats"]["working"], 1)
+            self.assertEqual(snapshot["stats"]["subagents"], 1)
+            self.assertIn("uptime", snapshot["stats"])
+            self.assertIn("monsters_seen", snapshot["stats"])
             # Names stick to their session: when the first Claude leaves, the second keeps its name.
             for name in ("comm", "cmdline", "stat"):
                 os.remove(f"{root}/10/{name}")
@@ -695,7 +715,7 @@ class AgentTests(unittest.TestCase):
         kittens = [a for a in world.animals if a.sub]
         self.assertEqual(len(kittens), 4)
         self.assertEqual({k.name for k in kittens}, {"general-purpo~"})
-        self.assertIn("memanggil", world.notice)
+        self.assertIn("called", world.notice)
         for _ in range(200):
             world.update(0.05, 8)
             for kitten in kittens:
@@ -843,9 +863,39 @@ class AgentTests(unittest.TestCase):
             self.assertIn("deepseek :41138", text)
             self.assertIn("-> api.deepseek.com", text)
             self.assertNotIn("secret", text)
-            self.assertIn("kirim", text)  # its cat is working
+            self.assertIn("send", text)  # its cat is working
             self.assertIn("[Claude]", text.splitlines()[5])
         self.assertEqual(RouterMonitor("/no/such/proc").poll(), [])
+
+    def test_stats_box_fills_the_top_left_when_no_router_is_shown(self):
+        world = World(100, 30, seed=1)
+        world.sync_agents({32: ("claude", "work"), 40: ("codex", "idle")})
+        land(world)
+        world.victories = 3
+        styles = {**dict.fromkeys(SPRITES, 0), "enemy": 0}
+
+        screen = Screen(30, 100)
+        render(screen, world, 8, False, styles, [], None, [])
+        text = "\n".join("".join(row) for row in screen.rows)
+        self.assertIn("+- park", text)
+        self.assertIn("agents", text)
+        self.assertIn("1/2", text)  # one of two agent cats is working
+        self.assertIn("wins", text)
+        self.assertIn("3", text)  # the victory count
+        self.assertIn(world.place, text)
+
+        # A router owns the corner, so the stats box steps aside.
+        router = Router(pid=31, profile="deepseek", port=41138, host="api.example.com",
+                        age=5.0, connections=0, busy=False, client=32)
+        screen = Screen(30, 100)
+        render(screen, world, 8, False, styles, [], None, [router])
+        self.assertNotIn("+- park", "\n".join("".join(row) for row in screen.rows))
+
+        # During a raid the banner owns the top rows instead.
+        world.start_raid()
+        screen = Screen(30, 100)
+        render(screen, world, 8, False, styles, [], None, [])
+        self.assertNotIn("+- park", "\n".join("".join(row) for row in screen.rows))
 
     def test_hook_script_never_fails(self):
         for argv, stdin in ((["agent_hook.py"], "{}"), (["agent_hook.py", "claude"], "not json")):

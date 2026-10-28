@@ -360,6 +360,14 @@ function freeDesk(animal) {
 
 let lastState = 0
 const message = document.getElementById("message")
+const clockLabel = document.getElementById("clock")
+const statsLabel = document.getElementById("stats")
+
+function duration(seconds) {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  return `${Math.floor(seconds / 3600)}h`
+}
 
 function apply(state) {
   lastState = performance.now()
@@ -387,6 +395,11 @@ function apply(state) {
   const working = state.agents.filter((agent) => agent.status === "work").length
   sign.element.textContent = `AI HQ: ${working} working`
   message.textContent = state.agents.length ? "" : "The park is quiet... run an AI agent and the animals will come."
+  if (state.stats) {
+    const s = state.stats
+    statsLabel.textContent =
+      `up ${duration(s.uptime)} · agents ${s.working}/${s.agents} · subagents ${s.subagents} · monsters ${s.monsters_seen}`
+  }
 }
 
 const systemPanel = document.getElementById("system")
@@ -575,6 +588,7 @@ function countFrame() {
     frames = 0
     fpsSince = now
   }
+  clockLabel.textContent = new Date().toLocaleTimeString()
 }
 
 const clock = new THREE.Clock()

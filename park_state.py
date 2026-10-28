@@ -40,6 +40,8 @@ class State:
         self.watcher = watcher or ProcessWatcher(proc)
         self.routers = routers or RouterMonitor(proc)
         self.names = {}  # session key -> name, kept while the session lives
+        self.started = None  # first poll time, for an uptime the view can show
+        self.monsters_seen = 0  # heavy processes announced so far
 
     def name(self, key, kind, sessions):
         """"Claude", then "Claude 2" and so on, like the terminal names its cats."""
@@ -74,8 +76,18 @@ class State:
             if pid not in self.watcher.fought:
                 self.watcher.fought.add(pid)
                 monsters.append({"pid": pid, "name": name, "detail": detail})
+        if self.started is None:
+            self.started = now
+        self.monsters_seen += len(monsters)
+        stats = {
+            "uptime": now - self.started,
+            "agents": len(agents),
+            "working": sum(1 for agent in agents if agent["status"] == "work"),
+            "subagents": sum(len(agent["subagents"]) for agent in agents),
+            "monsters_seen": self.monsters_seen,
+        }
         return {"time": now, "agents": agents, "system": system, "monsters": monsters,
-                "routers": [asdict(router) for router in self.routers.poll()]}
+                "routers": [asdict(router) for router in self.routers.poll()], "stats": stats}
 
 
 def main(argv=sys.argv[1:]):

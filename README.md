@@ -10,8 +10,8 @@ as a 3D app.
 By default, the park is only populated by animals belonging to running
 Claude Code, Codex, and OpenCode sessions (see **AI cats** below), their
 children for subagents, and monsters from heavy processes. If there are no
-sessions yet, the park is empty with the text `Taman sepi...`. Run with
-`--semua` to also spawn the wild animals listed below.
+sessions yet, the park is empty with the text `The park is quiet...`. Run with
+`--semua` (Indonesian for "all") to also spawn the wild animals listed below.
 
 ASCII cats, dogs, rabbits, ducks, and mice with random behavior.
 Some stroll leisurely, sleep, groom themselves, jump, or suddenly dash off.
@@ -56,9 +56,16 @@ works.
 System panel: in the top-right corner there is a small btop-style box
 containing CPU, RAM, swap (if any), load average, and a graph of the last
 24 seconds of CPU. Next to it sits a guard cat. If CPU goes above 60%, the cat
-starts to worry (`CPU naik nih...`). If CPU goes above 85% or RAM above 90%,
-the cat panics, trembles, and shouts `AWAS! CPU 93%!`. The panel only appears
-on Linux in terminals at least 64x20.
+starts to worry (`CPU is climbing...`). If CPU goes above 85% or RAM above 90%,
+the cat panics, trembles, and shouts `WATCH OUT! CPU 93%!`. The panel only
+appears on Linux in terminals at least 64x20.
+
+The top row shows `AGENT PARK / <PLACE> / <mode>` on the left and, when the
+terminal is wide enough, a live clock (`HH:MM:SS`) centred between it and the
+system panel. A small **park stats** box sits in the top-left corner (unless a
+ccx router box is there, or a monster raid is on): park uptime, the number of
+animals and AI agents, monsters defeated (`wins`), and the current place with
+its countdown.
 
 AI cats: every running **Claude Code**, **Codex CLI**, or **OpenCode** session
 gets its own animal: an orange cat `[Claude]`, a blue dog `[Codex]`, or a
@@ -88,7 +95,7 @@ screensaver then reads:
 
 - `work`: you sent a prompt or the agent is using a tool. The cat sits at its computer in the HQ and types.
 - `wait`: the agent is asking for permission. The cat jumps around with the
-  label `butuh kamu!`.
+  label `need you!`.
 - `idle`: the turn is finished or stopped. The cat leaves the HQ and plays in the park.
 
 The hook also records the model used by the session, and that model then
@@ -144,8 +151,8 @@ If the [ccx](../ccx) profile uses a router (`ccx-router`), a **ccx router** box
 appears in the top-left. It contains the profile name, local port, upstream
 host (without path or credentials), uptime, and the Claude cat using it. The
 arrow `>-->` moves when the router or its cat is working; otherwise it shows
-`diam` and the number of open connections. At most three routers are shown, and
-the rest are summarized as `+N lagi`. A router never becomes a monster.
+`idle` and the number of open connections. At most three routers are shown, and
+the rest are summarized as `+N more`. A router never becomes a monster.
 
 OpenCode has no command-based hooks, so its status is sent via the
 `opencode_plugin.js` plugin. This plugin turns OpenCode session events (busy,
@@ -184,7 +191,7 @@ List of recognized agents:
 Pi runs on top of Node but renames its process to `pi`, so it is still
 detected. Its status is sent via the `pi_extension.ts` extension: starting and
 finishing answering a prompt (including Esc), and exiting. Pi has no built-in
-permission prompt or subagents, so there is no `butuh kamu!` or baby ducks.
+permission prompt or subagents, so there is no `need you!` or baby ducks.
 Install it with a symlink, then reopen Pi:
 
 ```sh
@@ -206,7 +213,7 @@ kiro-cli agent set-default agent-park
 An agent that only contains `hooks` may lose access to tools. Kiro event names
 use camelCase, and `agent_hook.py` accepts them as-is. Kiro only has these five
 events and has no event for when it asks for permission, so its animal cannot
-display `butuh kamu!`.
+display `need you!`.
 
 ```json
 {"hooks": {
@@ -263,9 +270,14 @@ settings.
 ([Tauri](https://tauri.app) with Three.js). The terminal can still be used as
 usual. The agent detection logic stays in Python: the app runs
 `park_state.py`, which prints the park status as one line of JSON per second
-(agents, subagents, CPU/RAM, monsters), and the 3D world then moves its own
-animals based on that status. New agents only need to be added to the `AGENTS`
-table, and both views get them right away.
+(agents, subagents, CPU/RAM, monsters, and a `stats` block with uptime and
+counts), and the 3D world then moves its own animals based on that status. New
+agents only need to be added to the `AGENTS` table, and both views get them
+right away.
+
+Like the terminal, the 3D HUD shows a live clock in the top-left along with a
+one-line park-stats summary (uptime, working/total agents, subagents, and the
+number of heavy processes seen) built from the `stats` block.
 
 ```sh
 cd park3d

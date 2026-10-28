@@ -11,6 +11,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3f0; col
 canvas.scene { display: block; }
 #hud { position: fixed; top: 16px; left: 16px; pointer-events: none; }
 #title { font-weight: 700; font-size: 18px; text-shadow: 0 1px 3px #0008; }
+#clock { color: var(--text); font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000a; margin-top: 2px; }
+#stats { color: var(--muted); font-size: 12px; text-shadow: 0 1px 3px #000a; margin-top: 2px; }
 #message { color: var(--text); text-shadow: 0 1px 3px #000a; margin-top: 4px; }
 #system { position: fixed; top: 16px; right: 16px; width: 220px; padding: 10px 12px;
   background: var(--panel); border-radius: 10px; }
