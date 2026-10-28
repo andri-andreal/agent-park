@@ -67,7 +67,7 @@ FIGHT_FRAMES = (
     ("   .-~~~~-.", "  ( # @ !  )", " ( ! * # @  )", "  `-~~~~~~-'"),
     ("   .-~~~~-.", " ( * ! # @  )", "  ( @ # *  )", "  `-~~~~~~-'"),
 )
-PLACES = ("Taman", "Hutan", "Pantai", "Desa")
+PLACES = ("Park", "Forest", "Beach", "Village")
 PLACE_DURATION = 35.0
 TREE = (r"   /\   ", r"  /^^\  ", r" /^^^^\ ", "   ||   ")
 PALM = (r" \  |  / ", r"  \ | /  ", r" ---+--- ", "    |    ")
@@ -75,10 +75,10 @@ HOUSE = (r"   /\   ", r"  /__\  ", " | [] | ", " |__|_| ")
 BENCH = ("|_______|", "|_______|", " ||   || ")
 MONSTER = (r"  /\  /\  ", " ( >  < ) ", " /|####|\\ ", "  /    \\  ")
 RAID_PHASES = (
-    ("datang", 3.0, "AWAS! Monster datang! Semua hewan, kumpul!"),
-    ("tangkis", 6.0, "Bertahan bersama! TANGKIS! Tidak ada yang terluka."),
-    ("lawan", 11.0, "Sekarang! Semua hewan menyerang balik!"),
-    ("menang", 14.0, "MENANG! Monster kabur! Hidup tim hewan!"),
+    ("datang", 3.0, "LOOK OUT! A monster is coming! All animals, gather!"),
+    ("tangkis", 6.0, "Stand together! BLOCK! No one gets hurt."),
+    ("lawan", 11.0, "Now! All animals, strike back!"),
+    ("menang", 14.0, "WE WON! The monster fled! Long live team animal!"),
 )
 # Monsters are real: a process started after the screensaver that hogs a
 # core or a lot of memory. Each one attacks once; the park then rests.
@@ -117,14 +117,14 @@ AGENT_BUSY_CPU = 0.025  # an idle TUI waiting for input stays below ~2%
 HOOK_STALE = 90.0
 # Working cats zoom around the park and change course often.
 WORK_SPEED = 2.2
-WORK_CHATTER = ("tik tak tuk!", "ngoding!!", "wusss!", "sibuk sibuk!", "compile!", "gas terus!")
+WORK_CHATTER = ("tik tak tuk!", "coding!!", "wooosh!", "busy busy!", "compile!", "full speed!")
 # How agent cats arrive: (seconds, announcement). Picked at random per cat.
 ENTRANCES = {
-    "meteor": (3.0, "METEOR jatuh ke taman! Eh... ternyata {name}!"),
-    "ufo": (3.5, "UFO mendarat! {name} diturunkan pakai sinar."),
-    "portal": (3.0, "Portal terbuka! {name} melompat keluar."),
-    "parasut": (3.5, "{name} terjun payung ke taman. Wiii!"),
-    "teleport": (2.5, "Bzzt... {name} ter-teleport ke taman."),
+    "meteor": (3.0, "A METEOR fell into the park! Oh... it's {name}!"),
+    "ufo": (3.5, "A UFO landed! {name} was lowered by a beam."),
+    "portal": (3.0, "A portal opened! {name} jumped out."),
+    "parasut": (3.5, "{name} parachuted into the park. Wheee!"),
+    "teleport": (2.5, "Bzzt... {name} teleported into the park."),
 }
 KITTEN_ENTRANCE = ("pop", 0.8)
 UFO = ("   _.---._   ", " (_o_o_o_o_) ")
@@ -582,7 +582,7 @@ class World:
         self.animals = []
         self.encounters = []
         self.arrival = 4.0
-        self.notice = "Taman dibuka. Siapa yang bakal bikin ribut?"
+        self.notice = "The park is open. Who's going to cause a ruckus?"
         self.notice_timer = 5.0
         initial = ("kucing", "anjing", "kelinci")[:max(1, min(3, self.capacity - 1))]
         for species in initial if wild else ():
@@ -654,7 +654,7 @@ class World:
         self.place_timer = PLACE_DURATION
         for animal in self.animals:
             self.constrain(animal)
-        self.say(f"Pindah ke {self.place.lower()}! Ayo jalan-jalan.")
+        self.say(f"Moving to the {self.place.lower()}! Let's take a walk.")
 
     def say(self, message):
         self.notice, self.notice_timer = message, 4.0
@@ -691,7 +691,7 @@ class World:
                 animal.model = short_model(models.get(animal.agent, ""))
                 status = sessions[animal.agent][1]
                 if status == "wait" and animal.status != "wait":
-                    self.say(f"{animal.name} butuh persetujuan kamu!")
+                    self.say(f"{animal.name} needs your approval!")
                 animal.status = status
         if self.raid:
             return  # arrivals and goodbyes wait until the battle is over
@@ -700,7 +700,7 @@ class World:
                 # The session closed: the cat waves and walks off screen.
                 animal.agent, animal.visitor, animal.state = 0, True, "pass"
                 animal.vx = -1 if animal.x < self.width / 2 else 1
-                self.say(f"{animal.name} selesai kerja. Dadah!")
+                self.say(f"{animal.name} finished working. Bye!")
         present = {animal.agent for animal in self.animals}
         for pid, (kind, status) in sorted(sessions.items(), key=lambda item: str(item[0])):
             if pid in present:
@@ -799,7 +799,7 @@ class World:
         for animal in self.animals:
             animal.state, animal.entry = "rally", 0  # landing can wait, the park can't
         detail = f" ({detail})" if detail else ""
-        self.say(f"AWAS! Monster {self.raid.monster}{detail} datang! Semua hewan, kumpul!")
+        self.say(f"LOOK OUT! Monster {self.raid.monster}{detail} is coming! All animals, gather!")
 
     def threat(self, monster, detail):
         """A heavy new process showed up. Returns True if the park fights it."""
@@ -835,7 +835,7 @@ class World:
                 animal.timer = self.rng.uniform(3, 6)
             self.raid = None
             self.raid_cooldown = RAID_COOLDOWN
-            self.say("Aman lagi. Saatnya lanjut jalan-jalan!")
+            self.say("All clear again. Time to keep strolling!")
             return
         for index, animal in enumerate(self.animals):
             tx, ty = self.formation(index)
@@ -954,7 +954,7 @@ class World:
                     animal.cooldown = self.rng.uniform(5, 9)
                 self.encounters.remove(encounter)
                 if encounter.kind == "fight":
-                    self.say("Sudah, sudah... bubar! Tidak ada yang terluka :)")
+                    self.say("Okay, okay... break it up! No one got hurt :)")
 
         ready = [a for a in self.animals if not a.visitor and not a.agent and a.cooldown <= 0
                  and a.state in ("walk", "hop", "sprint")]
@@ -1018,7 +1018,7 @@ def render_place(screen, world, styles, particles):
             if y >= 2:
                 draw(screen, y, x, line, style)
 
-    if world.place == "Hutan":
+    if world.place == "Forest":
         for x in range(1, width - 5, 12):
             art(x, TREE, grass)
         if horizon >= 7:
@@ -1027,7 +1027,7 @@ def render_place(screen, world, styles, particles):
         for sx, sy, phase in particles[:8]:
             if math.sin(world.elapsed * 1.5 + phase) > 0.4:
                 draw(screen, 2 + int(sy * max(1, horizon - 3)), int(sx * (width - 1)), "*", wood)
-    elif world.place == "Pantai":
+    elif world.place == "Beach":
         art(2, PALM, grass)
         if width >= 60:
             art(width - 13, PALM, grass)
@@ -1037,7 +1037,7 @@ def render_place(screen, world, styles, particles):
         shift = int(world.elapsed * 3) % 8
         wave = ("~~  ~~~~" * (width // 8 + 2))[shift:shift + width]
         draw(screen, horizon - 1, 0, wave, water)
-    elif world.place == "Desa":
+    elif world.place == "Village":
         for x in range(3, width - 7, 24):
             art(x, HOUSE, wood)
         if horizon >= 7:
@@ -1053,20 +1053,20 @@ def render_place(screen, world, styles, particles):
             draw(screen, 2, cloud_x, " .--. ", sky)
             draw(screen, 3, cloud_x, "(____)", sky)
 
-    draw(screen, horizon, 0, ("~" if world.place == "Pantai" else "_") * width,
-         water if world.place == "Pantai" else grass)
+    draw(screen, horizon, 0, ("~" if world.place == "Beach" else "_") * width,
+         water if world.place == "Beach" else grass)
     # Sparse, stable ground detail keeps the walking area readable.
     for sx, sy, phase in particles[:max(4, min(24, width * height // 180))]:
         y = world.ground_top + int(sy * max(1, height - world.ground_top - 2))
         x = int(sx * (width - 1))
-        if world.place == "Pantai":
+        if world.place == "Beach":
             text, style = ("." if phase < math.pi else "o"), wood
-        elif world.place == "Desa":
+        elif world.place == "Village":
             text, style = ("." if phase < math.pi else ","), wood
         else:
             text, style = ("," if phase < math.pi else 'v'), grass
         draw(screen, y, x, text, style)
-    if world.place == "Desa" and width >= 60:
+    if world.place == "Village" and width >= 60:
         draw(screen, height - 2, 0, "  -  " * (width // 5), wood)
 
 
@@ -1110,10 +1110,10 @@ def render_raid(screen, world, styles):
             x = (index * 17 + int(raid.age * 4)) % width
             y = 3 + (index * 7 + int(raid.age * 5)) % max(1, height - 5)
             draw(screen, y, x, ("*", "+", "o")[index % 3], styles["kucing"])
-        banner = f"MENANG! Semua {len(world.animals)} hewan selamat! Hore!"
+        banner = f"WE WON! All {len(world.animals)} animals are safe! Hooray!"
     else:
-        label = {"datang": "AWAS!", "tangkis": "TANGKIS!", "lawan": "SERBU!"}[phase]
-        banner = f"{label} Monster {raid.monster}: {raid.health}% | Tim: {len(world.animals)} hewan"
+        label = {"datang": "LOOK OUT!", "tangkis": "BLOCK!", "lawan": "CHARGE!"}[phase]
+        banner = f"{label} Monster {raid.monster}: {raid.health}% | Team: {len(world.animals)} animals"
     draw(screen, 2, 0, " " * width)
     draw(screen, 2, 2, banner, curses.A_BOLD)
 
@@ -1202,7 +1202,7 @@ def render_entrance(screen, world, animal, style):
         if progress < 0.9:
             label(f"[{animal.name}] wiii~", top)
         else:
-            label(f"[{animal.name}] mendarat!")
+            label(f"[{animal.name}] landed!")
     elif animal.entrance == "teleport":
         # Noise settles into the cat, character by character.
         for row, line in enumerate(lines):
@@ -1251,7 +1251,7 @@ def render_system(screen, system, elapsed, styles):
         ("SWP", swap, level(swap, 0.5, 0.8)) if swap_total else None,
     )
     inner = SYSTEM_WIDTH - 2
-    lines = ["+- sistem " + "-" * (inner - 9) + "+"]
+    lines = ["+- system " + "-" * (inner - 9) + "+"]
     lines += ["|" + " " * inner + "|"] * (sum(1 for row in rows if row) + 2)
     lines.append("+" + "-" * inner + "+")
     for row, line in enumerate(lines):
@@ -1283,13 +1283,13 @@ def render_system(screen, system, elapsed, styles):
     if mood == "alarm":
         draw(screen, top + 1 + flash, cat_x + 8, "!", alarm)
         if system.cpu >= SYSTEM_ALARM:
-            speech = f"AWAS! CPU {round(system.cpu * 100)}%!" if flash else "panas panas!"
+            speech = f"WATCH OUT! CPU {round(system.cpu * 100)}%!" if flash else "hot hot!"
         else:
-            speech = f"RAM {round(ram * 100)}%! sesak!" if flash else "RAM hampir penuh!"
+            speech = f"RAM {round(ram * 100)}%! so tight!" if flash else "RAM almost full!"
     elif mood == "busy":
-        speech = "CPU naik nih..."
+        speech = "CPU is climbing..."
     else:
-        speech = "santai~"
+        speech = "chill~"
     draw(screen, top + 4, left - 2 - len(speech), f" {speech} ", style if mood != "calm" else curses.A_DIM)
 
 
@@ -1340,7 +1340,7 @@ def render_routers(screen, world, routers, styles, crowded):
         draw(screen, y + 2, left + inner - len(owner), owner,
              style_of(styles, cat) if cat else curses.A_DIM)
     if len(routers) > len(shown):
-        draw(screen, top + rows, left + 2, f"+{len(routers) - len(shown)} lagi", curses.A_DIM)
+        draw(screen, top + rows, left + 2, f"+{len(routers) - len(shown)} more", curses.A_DIM)
 
 
 def render_office(screen, world, styles):
@@ -1365,7 +1365,7 @@ def render_office(screen, world, styles):
             text = "  zz"  # screen saver of the screen saver
         draw(screen, y + 1, x + 14, text.ljust(7), style)
     busy = sum(1 for a in world.animals if a.agent and not a.sub and a.status == "work")
-    sign = f"[ MARKAS AI: {busy} kerja ]" if busy else "[ MARKAS AI: sepi ]"
+    sign = f"[ AI HQ: {busy} working ]" if busy else "[ AI HQ: empty ]"
     draw(screen, world.ground_top - 1, left + (width - left - len(sign)) // 2, sign,
          styles.get("claude", curses.A_BOLD) if busy else curses.A_DIM)
 
@@ -1373,9 +1373,9 @@ def render_office(screen, world, styles):
 def render(screen, world, speed, paused, styles, stars, system=None, routers=()):
     height, width = screen.getmaxyx()
     if world.raid:
-        mode = "lokasi dijaga"
+        mode = "location held"
     else:
-        mode = f"pindah {max(1, math.ceil(world.place_timer))}d" if world.auto_place else "menetap"
+        mode = f"next {max(1, math.ceil(world.place_timer))}s" if world.auto_place else "locked"
     draw(screen, 0, 2, f"AGENT PARK / {world.place.upper()} / {mode}", curses.A_BOLD)
     if world.notice_timer > 0:
         draw(screen, 1, 2, world.notice, curses.A_DIM)
@@ -1415,11 +1415,11 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
             draw(screen, animal.y + offset, head, ("*", "'")[flick], curses.A_BOLD)
         label = {
             "sleep": "z Z" if int(world.elapsed) % 2 else "z",
-            "groom": "* lick *" if int(world.elapsed * 2) % 2 else "* rapihin bulu *",
-            "greet": "halo!", "chase": "!!", "flee": "kabuuur!", "sprint": "wusss!",
-            "rally": "siap!", "guard": "tangkis!", "attack": "serbuuu!", "cheer": "horeee!",
+            "groom": "* lick *" if int(world.elapsed * 2) % 2 else "* preen fur *",
+            "greet": "hello!", "chase": "!!", "flee": "run awaaay!", "sprint": "wooosh!",
+            "rally": "ready!", "guard": "block!", "attack": "chaaarge!", "cheer": "yaaay!",
             "work": WORK_CHATTER[int(world.elapsed * 1.5 + animal.phase) % len(WORK_CHATTER)],
-            "wait": "butuh kamu!" if int(world.elapsed * 2) % 2 else "halo? izin dong!",
+            "wait": "need you!" if int(world.elapsed * 2) % 2 else "hey? permission please!",
         }.get(animal.state)
         if animal.agent:
             # The name (and model) always shows so you can tell whose cat is
@@ -1447,11 +1447,11 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
     render_system(screen, system, world.elapsed, styles)
     render_routers(screen, world, routers, styles, system is not None)
     if not world.animals and not world.raid:
-        hint = "Taman sepi... jalankan agen AI (claude, codex, opencode, ...), hewannya akan datang."
+        hint = "The park is quiet... run an AI agent (claude, codex, opencode, ...) and the animals will come."
         draw(screen, (world.ground_top + height) // 2, max(0, (width - len(hint)) // 2), hint, curses.A_DIM)
-    footer = "q keluar | r serangan | l lokasi | spasi jeda | a otomatis | "
-    footer += ("n hewan | " if world.wild else "") + "s sistem | +/- cepat"
-    draw(screen, height - 1, 2, ("[JEDA] " if paused else "") + footer, curses.A_DIM)
+    footer = "q quit | r raid | l location | space pause | a auto | "
+    footer += ("n animal | " if world.wild else "") + "s system | +/- speed"
+    draw(screen, height - 1, 2, ("[PAUSED] " if paused else "") + footer, curses.A_DIM)
 
 
 def main(screen, wild=False):
@@ -1514,8 +1514,8 @@ def main(screen, wild=False):
         world.width, world.height = width, height
         screen.erase()
         if width < 32 or height < 12:
-            draw(screen, 0, 0, "Terminal terlalu kecil.")
-            draw(screen, 1, 0, "Perbesar layar; q keluar.")
+            draw(screen, 0, 0, "Terminal too small.")
+            draw(screen, 1, 0, "Enlarge the window; q to quit.")
         else:
             if not paused:
                 if key in (ord("n"), ord("N")) and world.wild:
@@ -1530,7 +1530,7 @@ def main(screen, wild=False):
                             break
                     if system.poll():
                         if system.mood == "alarm" and mood != "alarm":
-                            world.say("Kucing penjaga: AWAS! Komputer lagi kepanasan!")
+                            world.say("Guard cat: WATCH OUT! The computer is overheating!")
                         mood = system.mood
                     routers = router_monitor.poll()
                     next_poll = now + AGENT_POLL

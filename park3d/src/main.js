@@ -13,7 +13,7 @@ const OFFICE = { left: 13, right: 34, depth: 15 }  // the fenced AI office
 const DESKS = [17, 26].flatMap((x) => [-9, -3, 3, 9].map((z) => new THREE.Vector3(x, 0, z)))
 const SEAT = 2.5  // how far in front of its desk a working animal sits
 const EDGE = 58  // leaving animals walk this far out, then vanish
-const WORK_SAY = ["tik tak tuk!", "ngoding!!", "wusss!", "sibuk sibuk!", "compile!", "gas terus!"]
+const WORK_SAY = ["tik tak tuk!", "coding!!", "wooosh!", "busy busy!", "compile!", "full speed!"]
 const SCREEN_TEXT = [">_ make", "{ ok! }", "[###  ]", "[#### ]", "git add", "404?!..", ">_ test", "[#####]"]
 const STALE = 5000  // ms without state before the page says the feed stopped
 const OPTIONS = new URLSearchParams(location.search)
@@ -184,7 +184,7 @@ function buildOffice() {
     drawScreen(desks.at(-1), "  zz", "#55606a")
   }
   scene.add(bake(office))
-  const sign = label("MARKAS AI", "sign")
+  const sign = label("AI HQ", "sign")
   sign.position.set((OFFICE.left + OFFICE.right) / 2, 5, -OFFICE.depth)
   scene.add(sign)
   return sign
@@ -334,7 +334,7 @@ function addAnimal(id, info, parent = null) {
     phase: Math.random() * 10, falling: !parent, velocity: 0, leaving: false, seen: true,
   }
   animals.set(id, animal)
-  if (!parent) say(`${info.name} jatuh dari langit ke taman!`)
+  if (!parent) say(`${info.name} fell from the sky into the park!`)
   return animal
 }
 
@@ -367,26 +367,26 @@ function apply(state) {
   for (const info of state.agents) {
     const animal = animals.get(info.id) || addAnimal(info.id, info)
     animal.seen = true
-    if (animal.status !== "wait" && info.status === "wait") say(`${info.name} butuh persetujuan kamu!`)
+    if (animal.status !== "wait" && info.status === "wait") say(`${info.name} needs your approval!`)
     animal.status = info.status
     setText(animal.model, info.model || "")
     for (const sub of info.subagents) {
       const id = `${info.id}/${sub.id}`
       if (!animals.has(id)) {
         addAnimal(id, sub, animal)
-        say(`${info.name} memanggil ${sub.type} untuk membantu!`)
+        say(`${info.name} called ${sub.type} to help out!`)
       }
       animals.get(id).seen = true
     }
   }
   for (const animal of animals.values()) {
-    if (!animal.seen) leave(animal, animal.baby ? null : `${animal.label} selesai kerja. Dadah!`)
+    if (!animal.seen) leave(animal, animal.baby ? null : `${animal.label} finished working. Bye!`)
   }
-  for (const monster of state.monsters || []) say(`Monster ${monster.name} (${monster.detail}) mengintip taman...`)
+  for (const monster of state.monsters || []) say(`Monster ${monster.name} (${monster.detail}) is peeking at the park...`)
   if (state.system) showSystem(state.system)
   const working = state.agents.filter((agent) => agent.status === "work").length
-  sign.element.textContent = `MARKAS AI: ${working} kerja`
-  message.textContent = state.agents.length ? "" : "Taman sepi... jalankan agen AI, hewannya akan datang."
+  sign.element.textContent = `AI HQ: ${working} working`
+  message.textContent = state.agents.length ? "" : "The park is quiet... run an AI agent and the animals will come."
 }
 
 const systemPanel = document.getElementById("system")
@@ -406,8 +406,8 @@ function showSystem(system) {
   const history = system.history.slice(-24)
   history.forEach((cpu, index) => spark.fillRect(index * (200 / 24), 36 - cpu * 34, 200 / 24 - 2, cpu * 34 + 1))
   document.getElementById("mood").textContent = {
-    calm: "Kucing penjaga: santai~", busy: "Kucing penjaga: CPU naik nih...",
-    alarm: `Kucing penjaga: AWAS! CPU ${Math.round(system.cpu * 100)}%!`,
+    calm: "Guard cat: chill~", busy: "Guard cat: CPU is climbing...",
+    alarm: `Guard cat: WATCH OUT! CPU ${Math.round(system.cpu * 100)}%!`,
   }[system.mood] + `  ·  load ${system.load.toFixed(2)}`
 }
 
@@ -418,7 +418,7 @@ async function connect() {
   } else if (new URLSearchParams(location.search).has("demo")) {
     demo()
   } else {
-    message.textContent = "Bukan di aplikasi Tauri. Buka dengan ?demo untuk contoh."
+    message.textContent = "Not in the Tauri app. Open with ?demo for a sample."
   }
 }
 
@@ -484,13 +484,13 @@ function update(animal, dt, time) {
     animal.group.rotation.y += dt * 6
     if (position.y === 0) {
       animal.falling = false
-      setText(animal.speech, "ugh, pusing...")
+      setText(animal.speech, "ugh, dizzy...")
       animal.rest = 1.5
     }
     return
   }
   if (animal.leaving) {
-    setText(animal.speech, animal.baby ? "" : "dadah!")
+    setText(animal.speech, animal.baby ? "" : "bye!")
     if (walkTo(animal, animal.target, 7, dt)) {
       scene.remove(animal.group)
       animal.name.element.remove()
@@ -515,7 +515,7 @@ function update(animal, dt, time) {
     position.y = Math.abs(Math.sin(time * 6 + animal.phase)) * 1.2  // jump for attention
     still(animal)
     turnTo(animal, Math.atan2(-(camera.position.z - position.z), camera.position.x - position.x), dt)
-    setText(animal.speech, Math.floor(time * 2) % 2 ? "butuh kamu!" : "halo? izin dong!")
+    setText(animal.speech, Math.floor(time * 2) % 2 ? "need you!" : "hey? permission please!")
     return
   }
   if (animal.status === "work") {
@@ -586,7 +586,7 @@ renderer.setAnimationLoop((now) => {
   if (frames % SHADOW_EVERY === 0) renderer.shadowMap.needsUpdate = true
   const dt = Math.min(clock.getDelta(), 0.1), time = clock.elapsedTime
   for (const animal of [...animals.values()]) update(animal, dt, time)
-  if (lastState && performance.now() - lastState > STALE) message.textContent = "Data dari park_state.py berhenti..."
+  if (lastState && performance.now() - lastState > STALE) message.textContent = "Data from park_state.py stopped..."
   controls.update()
   renderer.render(scene, camera)
   labels.render(scene, camera)

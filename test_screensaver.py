@@ -73,7 +73,7 @@ class WorldTests(unittest.TestCase):
         world = World(100, 30, seed=4)
         self.assertTrue(world.threat("cargo-build-script", "CPU 180%"))
         self.assertEqual(world.raid.monster, "cargo-build-scr")
-        self.assertIn("Monster cargo-build-scr (CPU 180%) datang", world.notice)
+        self.assertIn("Monster cargo-build-scr (CPU 180%) is coming", world.notice)
         self.assertFalse(world.threat("node", "RAM 2.0 GB"))  # one monster at a time
         place, population = world.place, len(world.animals)
         world.change_place()
@@ -94,7 +94,7 @@ class WorldTests(unittest.TestCase):
         screen = Screen(24, 80)
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
         text = "\n".join("".join(row) for row in screen.rows)
-        self.assertIn("TANGKIS! Monster rustc:", text)
+        self.assertIn("BLOCK! Monster rustc:", text)
         self.assertEqual(text.count("rustc"), 2)  # banner and the name over its head
 
     def test_places_cycle_automatically_and_can_be_locked(self):
@@ -138,10 +138,10 @@ class WorldTests(unittest.TestCase):
                     render(screen, world, 8, False, dict.fromkeys(SPRITES, 0),
                            [(0.3, 0.5, 1.0)] * 32)
                     self.assertIn(place.upper(), "".join(screen.rows[0]))
-                    self.assertIn("q keluar", "".join(screen.rows[-1]))
+                    self.assertIn("q quit", "".join(screen.rows[-1]))
                     self.assertTrue(any("".join(row).strip() for row in screen.rows[2:world.ground_top]))
                     world.start_raid()
-                    for age, label in ((1, "AWAS!"), (4, "TANGKIS!"), (8, "SERBU!"), (12, "MENANG!")):
+                    for age, label in ((1, "LOOK OUT!"), (4, "BLOCK!"), (8, "CHARGE!"), (12, "WE WON!")):
                         world.raid.age = age
                         world.update_raid(0)
                         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
@@ -857,7 +857,7 @@ class AgentTests(unittest.TestCase):
         world.sync_agents({7: ("claude", "work")})
         land(world)
         world.sync_agents({7: ("claude", "wait")})
-        self.assertIn("butuh persetujuan", world.notice)
+        self.assertIn("needs your approval", world.notice)
         world.update(0.05, 8)
         cat = next(a for a in world.animals if a.agent)
         self.assertEqual(cat.state, "wait")
@@ -878,7 +878,7 @@ class AgentTests(unittest.TestCase):
         world.sync_agents({7: ("claude", "work"), 9: ("codex", "idle")}, models={9: "gpt-6.1-sol"})
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
         self.assertIn("[Codex | gpt-6.1-sol]", "\n".join("".join(row) for row in screen.rows))
-        self.assertIn("[ MARKAS AI: 1 kerja ]", text)
+        self.assertIn("[ AI HQ: 1 working ]", text)
 
     def test_working_cats_sit_at_their_own_computers(self):
         world = World(100, 28, seed=4)
@@ -901,7 +901,7 @@ class AgentTests(unittest.TestCase):
         screen = Screen(28, 100)
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
         text = "\n".join("".join(row) for row in screen.rows)
-        self.assertIn("[ MARKAS AI: 5 kerja ]", text)
+        self.assertIn("[ AI HQ: 5 working ]", text)
         # Clocking out frees the desk for a colleague.
         leaver = next(cat for cat in seated if cat.desk == 0)
         sessions[leaver.agent] = ("claude", "idle")
@@ -917,8 +917,8 @@ class AgentTests(unittest.TestCase):
         screen = Screen(30, 100)
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
         text = "\n".join("".join(row) for row in screen.rows)
-        self.assertIn("Taman sepi", text)
-        self.assertNotIn("n hewan", text)
+        self.assertIn("The park is quiet", text)
+        self.assertNotIn("n animal", text)
         for _ in range(400):  # 20 s: plenty of time for arrivals
             world.update(0.05, 8)
         self.assertEqual(world.animals, [])
@@ -987,7 +987,7 @@ class SystemPanelTests(unittest.TestCase):
         self.assertEqual((system.ram, system.swap, system.load), ((400 * 1024, 1000 * 1024), (0, 0), 1.5))
         self.assertEqual(system.mood, "calm")
         text = self.panel(system)
-        for part in ("+- sistem", "CPU [", " 20%", "RAM [", " 40%", "load 1.50", "santai~"):
+        for part in ("+- system", "CPU [", " 20%", "RAM [", " 40%", "load 1.50", "chill~"):
             self.assertIn(part, text)
         self.assertNotIn("SWP", text)  # no swap configured
 
@@ -1000,16 +1000,16 @@ class SystemPanelTests(unittest.TestCase):
         self.fake_proc(root, 70, 30, 600)
         system.poll()
         self.assertEqual(system.mood, "busy")
-        self.assertIn("CPU naik", self.panel(system))
+        self.assertIn("CPU is climbing", self.panel(system))
         self.fake_proc(root, 165, 35, 600)
         system.poll()
         self.assertEqual(system.mood, "alarm")
         text = self.panel(system)
-        self.assertTrue("AWAS! CPU 95%!" in text or "panas panas!" in text, text)
+        self.assertTrue("WATCH OUT! CPU 95%!" in text or "hot hot!" in text, text)
         self.fake_proc(root, 175, 125, 50)  # quiet CPU, RAM 95% used
         system.poll()
         self.assertEqual(system.mood, "alarm")
-        self.assertTrue("RAM 95%" in self.panel(system) or "RAM hampir" in self.panel(system))
+        self.assertTrue("RAM 95%" in self.panel(system) or "RAM almost" in self.panel(system))
 
     def test_no_proc_or_small_screen_hides_the_panel(self):
         system = SystemMonitor("/nonexistent")
