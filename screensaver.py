@@ -12,7 +12,7 @@ import sys
 import time
 from urllib.parse import urlsplit
 
-from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR
+from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of
 
 
 # Artwork faces left; each animal is mirrored when walking right.
@@ -99,6 +99,8 @@ AGENTS = {
     "amp": ("Amp", "anjing", 203, curses.COLOR_RED),
     "pi": ("Pi", "bebek", 45, curses.COLOR_CYAN),  # pi sets its process title
     "strix": ("Strix", "anjing", 160, curses.COLOR_RED),  # dark red
+    "kimi": ("Kimi", "kelinci", 252, curses.COLOR_WHITE),  # the moon rabbit
+    "mcode": ("MCode", "bebek", 209, curses.COLOR_RED),  # coral; runs as node
 }
 # Working agent cats gather in an office on the right of the ground; the
 # rest of the park is the playground everyone else (and idle cats) uses.
@@ -216,12 +218,14 @@ class AgentMonitor:
 
     def read(self, pid):
         with open(f"{self.proc}/{pid}/comm") as file:
-            kind = file.read().strip()
-        kind = AGENT_PROCESSES.get(kind, kind)
-        if kind not in AGENTS:
+            comm = file.read().strip()
+        if AGENT_PROCESSES.get(comm, comm) not in AGENTS and comm != "node":
             return None
         with open(f"{self.proc}/{pid}/cmdline", "rb") as file:
             args = file.read().decode(errors="replace").split("\0")
+        kind = agent_of(comm, args)
+        if kind not in AGENTS:
+            return None
         helper = any(arg in HELPER_ARGS for arg in args)
         with open(f"{self.proc}/{pid}/stat") as file:
             # The command name may contain spaces, so split after its ")".
@@ -383,6 +387,17 @@ class ProcessWatcher:
         self.history = {}
         self.fought = set()
 
+    def node_agent(self, pid, name):
+        """An agent such as MCode that runs as a plain node process."""
+        if name != "node":
+            return False
+        try:
+            with open(f"{self.proc}/{pid}/cmdline", "rb") as file:
+                args = file.read().decode(errors="replace").split("\0")
+        except OSError:
+            return False
+        return agent_of(name, args) in AGENTS
+
     def poll(self, now):
         """Return [(pid, name, detail)] of current monsters, heaviest first."""
         try:
@@ -412,7 +427,7 @@ class ProcessWatcher:
                 ticks, rss = int(fields[11]) + int(fields[12]), int(fields[21]) * self.page
             except (OSError, ValueError, IndexError):
                 continue
-            if name in AGENTS or name in AGENT_PROCESSES or name == ROUTER:
+            if name in AGENTS or name in AGENT_PROCESSES or name == ROUTER or self.node_agent(pid, name):
                 continue  # agents and their routers are the heroes, not the monsters
             samples = self.history.get(pid, [])[-MONSTER_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples

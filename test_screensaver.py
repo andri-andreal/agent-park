@@ -442,6 +442,46 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(sorted((a.name, a.species) for a in world.animals if a.agent),
                              [("Pi", "bebek"), ("Strix", "anjing")])
 
+    def test_kimi_and_mcode_get_their_own_animals(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = f"{root}/state"
+            monitor = AgentMonitor(root, state_dir=state, clock=lambda: 1000.0)
+            monitor.ticks_per_second = 100
+            self.fake_proc(root, 12, "kimi", 0)
+            self.fake_proc(root, 32, "sh", 0, parent=12)
+            # mcode is a plain node process: only its script tells it apart.
+            self.fake_proc(root, 13, "node", 0, ("/x/lib/node_modules/@minimax-ai/code/cli.js",))
+            self.fake_proc(root, 33, "sh", 0, parent=13)
+            self.fake_proc(root, 14, "node", 0, ("/x/vite.js",))  # some other node: not an agent
+            self.assertEqual(agent_hook.session_pid("kimi", root, start=32), 12)
+            self.assertEqual(agent_hook.session_pid("mcode", root, start=33), 13)
+            self.assertEqual(monitor.poll(0), {12: ("kimi", "idle"), 13: ("mcode", "idle")})
+            # Kimi names its subagents without an id and says when you answered it.
+            agent_hook.record("kimi", {"hook_event_name": "PermissionRequest"}, 12, state, now=1000.0)
+            self.assertEqual(monitor.poll(1)[12], ("kimi", "wait"))
+            agent_hook.record("kimi", {"hook_event_name": "PermissionResult"}, 12, state, now=1000.0)
+            agent_hook.record("kimi", {"hook_event_name": "SubagentStart", "agent_name": "coder"},
+                              12, state, now=1000.0)
+            self.assertEqual(monitor.poll(2)[12], ("kimi", "work"))
+            self.assertEqual(monitor.subagents[12], [("coder", "coder")])
+            agent_hook.record("kimi", {"hook_event_name": "SubagentStop", "agent_name": "coder"},
+                              12, state, now=1000.0)
+            monitor.poll(3)
+            self.assertNotIn(12, monitor.subagents)
+            world = World(100, 30, seed=5)
+            world.sync_agents(monitor.poll(4))
+            self.assertEqual(sorted((a.name, a.species) for a in world.animals if a.agent),
+                             [("Kimi", "kelinci"), ("MCode", "bebek")])
+            # A heavy mcode is a hero, not a monster; a heavy other node still is.
+            watcher = ProcessWatcher(root)
+            watcher.page = 4096
+            watcher.poll(0)
+            shutil.rmtree(f"{root}/13")
+            shutil.rmtree(f"{root}/14")
+            self.fake_proc(root, 15, "node", 0, ("/x/@minimax-ai/code/cli.js",), rss=(2 << 30) // 4096)
+            self.fake_proc(root, 16, "node", 0, ("/x/vite.js",), rss=(2 << 30) // 4096)
+            self.assertEqual(watcher.poll(1), [(16, "node", "RAM 2.0 GB")])
+
     @unittest.skipUnless(shutil.which("node"), "needs node to load the pi extension")
     def test_hook_names_each_sessions_model(self):
         with tempfile.TemporaryDirectory() as root:

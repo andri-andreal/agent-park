@@ -1,6 +1,6 @@
 # Agent Park
 
-The AI agents you are running (Claude Code, Codex, OpenCode, Kiro, Pi, ...)
+The AI agents you are running (Claude Code, Codex, OpenCode, Kiro, Pi, Kimi, MCode, ...)
 live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and
 as a 3D app.
@@ -187,6 +187,8 @@ List of recognized agents:
 | Amp | `amp` | red dog | CPU estimate |
 | Pi | `pi` | light blue duck | extension (below) |
 | Strix | `strix` | dark red dog | CPU estimate |
+| Kimi Code | `kimi` | white rabbit | hook (below) |
+| MCode (MiniMax) | `node` running `@minimax-ai/code` | coral duck | hook (below) |
 
 Pi runs on top of Node but renames its process to `pi`, so it is still
 detected. Its status is sent via the `pi_extension.ts` extension: starting and
@@ -225,12 +227,40 @@ display `need you!`.
 }}
 ```
 
+Kimi Code reads hooks from `~/.kimi-code/config.toml`, one `[[hooks]]` table
+per event, with the argument `kimi`. Its events are named like Claude's:
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
+`PermissionRequest`, `PermissionResult`, `SubagentStart`, `SubagentStop`,
+`Stop`, `StopFailure`, `Interrupt`, `SessionStart`, `SessionEnd`.
+`PermissionResult` (you answered its prompt) sends the rabbit back to work.
+Kimi gives subagents a name but no id, so the name is used for both.
+
+```toml
+[[hooks]]
+event = "Stop"
+command = "python3 /path/to/screensaver/agent_hook.py kimi"
+timeout = 5
+```
+
+MCode runs as a plain `node` process, so it is recognised by its script path
+(`NODE_AGENTS` in `agent_hook.py`), and its heavy moments never become
+monsters. Its user hooks live in `~/.minimax/hooks.json` (or add them with
+`/hooks` inside MCode), in Claude's format plus `"enabled": true`, with the
+argument `mcode`, for the events `SessionStart`, `SessionEnd`,
+`UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`,
+`SubagentStart`, `SubagentStop`, `Stop`:
+
+```json
+{"enabled": true, "hooks": {"Stop": [{"hooks": [{"type": "command", "timeout": 5,
+  "command": "python3 /path/to/screensaver/agent_hook.py mcode"}]}]}}
+```
+
 Other agents can be added to the `AGENTS` table in `screensaver.py` (process
 name, name, animal type, color). Their animal can also be changed in that
 table, e.g. `"bebek"` (duck) or `"tikus"` (mouse). A detected agent without a
 hook uses the CPU estimate. The requirement is that its process name in
 `/proc/<pid>/comm` must be distinctive. An agent running as a plain `node`
-cannot be distinguished this way.
+needs an entry in `NODE_AGENTS` instead, naming part of its script's path.
 
 Claude does not send an event when you press Esc. Because of this, a `work`
 status older than 90 seconds is read from CPU again.

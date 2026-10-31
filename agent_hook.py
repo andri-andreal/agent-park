@@ -2,7 +2,7 @@
 """Hook for AI coding agents: records what a session is doing.
 
 Usage (from the agent's hook config): python3 agent_hook.py <process name>,
-e.g. claude, codex, opencode or kiro-cli. The hook event arrives as JSON on
+e.g. claude, codex, opencode, kiro-cli, kimi or mcode. The hook event arrives as JSON on
 stdin; OpenCode has no command hooks, so opencode_plugin.js translates its
 events into this format. The state is written to
 STATE_DIR/<session pid>.json, where the screensaver picks it up. Codex runs
@@ -29,6 +29,8 @@ STATE_DIR = os.path.join(
 HELPER_ARGS = ("--chrome-native-host", "app-server", "serve")
 # Extra process names an agent runs under -> the agent they belong to.
 AGENT_PROCESSES = {"kiro-cli-chat": "kiro-cli"}
+# Agents that run as a plain `node` process -> part of their script's path.
+NODE_AGENTS = {"/@minimax-ai/code/": "mcode"}
 # Hook event -> what the cat should do. Missing events are ignored.
 EVENT_STATES = {
     "UserPromptSubmit": "work",
@@ -37,6 +39,7 @@ EVENT_STATES = {
     "PostToolUseFailure": "work",
     "SubagentStart": "work",
     "PermissionRequest": "wait",
+    "PermissionResult": "work",  # Kimi only: you answered its prompt
     "Stop": "idle",
     "StopFailure": "idle",
     "Interrupt": "idle",  # Codex only
@@ -61,6 +64,14 @@ MODEL_FIELD = re.compile(rb'"model(?:Id|ID)?"\s*:\s*"([^"<]+)"')
 TRANSCRIPT_TAIL = 256 * 1024
 
 
+def agent_of(comm, args):
+    """The agent a process belongs to, from its name or, for node, its script."""
+    if comm == "node":
+        return next((kind for part, kind in NODE_AGENTS.items()
+                     if any(part in arg for arg in args[1:])), comm)
+    return AGENT_PROCESSES.get(comm, comm)
+
+
 def session_pid(kind, proc="/proc", start=None):
     """Pid of the session process running this hook, or 0 for a shared helper.
 
@@ -71,9 +82,9 @@ def session_pid(kind, proc="/proc", start=None):
     while pid > 1:
         with open(f"{proc}/{pid}/comm") as file:
             comm = file.read().strip()
-        if AGENT_PROCESSES.get(comm, comm) == kind:
-            with open(f"{proc}/{pid}/cmdline", "rb") as cmdline:
-                args = cmdline.read().decode(errors="replace").split("\0")
+        with open(f"{proc}/{pid}/cmdline", "rb") as cmdline:
+            args = cmdline.read().decode(errors="replace").split("\0")
+        if agent_of(comm, args) == kind:
             if not found and any(arg in HELPER_ARGS for arg in args):
                 return 0
             found = pid
@@ -171,10 +182,12 @@ def record(kind, event, pid, state_dir=STATE_DIR, now=None):
     now = now or time.time()
     base, path = name[:-len(".json")], os.path.join(state_dir, name)
     hook = event.get("hook_event_name")
-    agent = re.sub(r"[^A-Za-z0-9-]", "", str(event.get("agent_id") or ""))
+    # Kimi names its subagents but gives them no id.
+    named = event.get("agent_name")
+    agent = re.sub(r"[^A-Za-z0-9-]", "", str(event.get("agent_id") or named or ""))
     if agent and hook == "SubagentStart":
         write(os.path.join(state_dir, f"{base}.sub-{agent}.json"),
-              {"type": event.get("agent_type") or "subagent", "time": now})
+              {"type": event.get("agent_type") or named or "subagent", "time": now})
     elif agent and hook == "SubagentStop":
         remove(os.path.join(state_dir, f"{base}.sub-{agent}.json"))
     state = state_for(event)
