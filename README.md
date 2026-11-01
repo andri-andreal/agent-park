@@ -1,5 +1,31 @@
 # Agent Park
 
+## Quick setup and diagnostics
+
+Clone this repository to a permanent location, then run:
+
+```sh
+python3 agent_park.py doctor
+python3 agent_park.py setup claude codex opencode pi mcode
+```
+
+When the terminal park or desktop app starts and finds supported agents without
+integrations, it offers to configure them. You can skip and continue to the
+park. In 3D, reopen the prompt from **Agents & alerts → Configure integrations**.
+Desktop setup keeps its integration files in `$XDG_DATA_HOME/agent-park/integration`
+(normally `~/.local/share/agent-park/integration`) so AppImage hooks remain
+available after the app closes. Kiro and Kimi still need the manual steps below.
+
+Choose only the integrations you use. Setup merges its own JSON hook entries
+with existing settings and refuses to replace an existing plugin file. Run it
+again safely after updating the project. Approve Codex hooks via `/hooks`;
+restart OpenCode and Pi after installing their extensions. To remove the entries
+or links installed by this checkout, run `python3 agent_park.py uninstall
+claude codex opencode pi mcode`. Kiro and Kimi use the manual setup below.
+Moving the checkout or changing Python paths requires removing the old entries
+first. `doctor` checks configuration, not whether an agent has delivered an
+event; it does not change your settings.
+
 The AI agents you are running (Claude Code, Codex, OpenCode, Kiro, Pi, Kimi, MCode, ...)
 live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and
@@ -100,6 +126,16 @@ screensaver then reads:
 
 The hook also records the model used by the session, and that model then
 appears on the animal's label, e.g. `[Claude | opus-5-5]`. The sources:
+
+The 3D **Agents & alerts** panel shows each agent's status, how long the view
+has observed that status, its source (hook or CPU estimate), and the age of the
+last hook event. Shared Codex/OpenCode sessions are matched to windows by
+recency, so their window association is uncertain. A stale work event may fall
+back to CPU detection; an estimate cannot establish that approval is needed.
+Optional desktop notifications trigger when an agent enters `wait`; alerts can
+be filtered by agent type and rate-limited, and sound is optional. Linux
+desktop notifications require `notify-send` and a notification service. Alert
+settings are stored locally by the 3D view. Notifications are off by default.
 
 | Agent | Model source |
 | --- | --- |
@@ -332,6 +368,24 @@ shows a single status snapshot, and `pnpm dev` followed by opening
 browser. On Wayland, the app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` so that
 WebGL is not black. The location of the status script can be changed via
 `PARK_STATE`.
+
+Linux release bundles include the Python backend scripts; Python 3 and a Linux
+desktop with WebKitGTK remain runtime requirements. The GitHub Actions Linux
+packages workflow can be run manually or by pushing a `v*` tag and publishes
+DEB/AppImage files as workflow artifacts. It does not publish a GitHub release.
+The CI workflow runs Python tests, builds the 3D frontend, and checks the Rust
+backend.
+
+### Local data and limitations
+
+Hooks write status, session identifiers, timestamps, and model names to
+`$XDG_RUNTIME_DIR/agent-park` (or `~/.cache/agent-park`). They may read the tail
+of local transcripts or the OpenCode database to determine the model; prompt
+and response text is not copied into state files. Session-end events and the
+monitor clean up state files, but abrupt shutdowns can leave files until a later
+monitor run. Remove the directory manually when Agent Park is stopped if needed.
+Agent detection and CPU estimates currently depend on Linux `/proc`; macOS can
+run the terminal animation but does not have equivalent session detection.
 
 Test the interaction simulation, passing animals, and resize with:
 

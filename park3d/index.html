@@ -20,6 +20,24 @@
       <div id="mood"></div>
     </div>
     <div id="log"></div>
+    <details id="agents-panel">
+      <summary>Agents &amp; alerts</summary>
+      <div id="agent-list">No agents detected.</div>
+      <div id="agent-detail">Select an agent for details.</div>
+      <label><input id="alerts" type="checkbox"> Desktop alerts when an agent needs you</label>
+      <label><input id="sound" type="checkbox"> Play a sound</label>
+      <label>Alert agent <select id="alert-agent"><option value="">All agents</option></select></label>
+      <label>Minimum interval <select id="alert-interval"><option value="30">30 seconds</option><option value="60">1 minute</option><option value="300">5 minutes</option></select></label>
+      <div id="alert-result" role="status"></div>
+      <button id="setup-open" type="button">Configure integrations</button>
+    </details>
+    <dialog id="setup-dialog" aria-labelledby="setup-title">
+      <h2 id="setup-title">Set up your agents</h2>
+      <p>Agent Park can add hooks or plugin links for the agents on this computer. Existing settings are kept.</p>
+      <div id="setup-agents"></div>
+      <p id="setup-result" role="status"></p>
+      <div class="setup-actions"><button id="setup-skip" type="button">Skip for now</button><button id="setup-run" type="button">Configure selected</button></div>
+    </dialog>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

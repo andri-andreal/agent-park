@@ -14,17 +14,36 @@ use std::thread;
 use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// The state script: $PARK_STATE if set, else the one in the repo next to this app.
-fn state_script() -> PathBuf {
+fn state_script(app: &tauri::AppHandle) -> PathBuf {
     std::env::var_os("PARK_STATE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../park_state.py"))
+        .unwrap_or_else(|| {
+            let bundled = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|path| path.join("backend/park_state.py"));
+            bundled.filter(|path| path.exists()).unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../park_state.py")
+            })
+        })
 }
 
 /// Starts the state script and streams its lines to the page; the page shows
 /// "no data" by itself if this fails (no python3, script moved, ...).
 fn spawn_state(app: tauri::AppHandle) -> Option<Child> {
-    let script = state_script();
-    let mut child = Command::new("python3")
+    let script = state_script(&app);
+    let mut command = Command::new("python3");
+    // linuxdeploy's AppRun points Python and the dynamic linker at the AppImage,
+    // which does not contain a Python standard library. Use system Python's
+    // normal environment for this child while keeping the app's own libraries.
+    if std::env::var_os("APPIMAGE").is_some() {
+        command
+            .env_remove("PYTHONHOME")
+            .env_remove("PYTHONPATH")
+            .env_remove("LD_LIBRARY_PATH");
+    }
+    let mut child = command
         .arg(&script)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -41,6 +60,61 @@ fn spawn_state(app: tauri::AppHandle) -> Option<Child> {
 }
 
 struct StateProcess(Mutex<Option<Child>>);
+
+#[tauri::command]
+fn notify_attention(name: String) -> Result<(), String> {
+    let status = Command::new("notify-send")
+        .arg("Agent Park")
+        .arg(format!("{name} needs your attention"))
+        .status()
+        .map_err(|error| format!("Cannot send notification: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Desktop notification failed".into())
+    }
+}
+
+#[tauri::command]
+fn integration_setup(app: tauri::AppHandle, agents: Option<Vec<String>>) -> Result<String, String> {
+    let script = state_script(&app).with_file_name("agent_park.py");
+    let mut command = Command::new("python3");
+    if std::env::var_os("APPIMAGE").is_some() {
+        command
+            .env_remove("PYTHONHOME")
+            .env_remove("PYTHONPATH")
+            .env_remove("LD_LIBRARY_PATH");
+    }
+    command.arg(script);
+    match agents {
+        None => {
+            command.arg("onboarding-status");
+        }
+        Some(names) => {
+            if names.is_empty()
+                || names.iter().any(|name| {
+                    !["claude", "codex", "opencode", "pi", "mcode"].contains(&name.as_str())
+                })
+            {
+                return Err("Select at least one supported integration".into());
+            }
+            command.arg("onboarding-setup").args(names);
+        }
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("Cannot run setup: {error}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(format!(
+            "{}{}",
+            stdout,
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
 
 /// `park3d --low --cap=20` becomes the page's `?low&cap=20`.
 fn page_options() -> String {
@@ -61,6 +135,10 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            notify_attention,
+            integration_setup
+        ])
         .setup(|app| {
             let page = format!("index.html{}", page_options());
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App(page.into()))

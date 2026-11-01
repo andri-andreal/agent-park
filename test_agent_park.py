@@ -1,0 +1,94 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import agent_park
+import agent_hook
+
+
+class SetupTests(unittest.TestCase):
+    def test_launch_prompt_requires_opt_in(self):
+        pending = [{"kind": "claude", "automatic": True, "configured": False}]
+        with patch.object(agent_park, "integration_status", return_value=pending), patch.object(agent_park, "configure") as configure:
+            agent_park.prompt_setup(input_fn=lambda _: "n", output=lambda _: None)
+            configure.assert_not_called()
+            agent_park.prompt_setup(input_fn=lambda _: "y", output=lambda _: None)
+            configure.assert_called_once_with("claude")
+
+    def test_desktop_setup_uses_persistent_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = dict(os.environ, HOME=root, XDG_DATA_HOME=str(Path(root) / "data"))
+            subprocess.run([sys.executable, str(agent_park.ROOT / "agent_park.py"), "onboarding-setup", "claude"],
+                           env=env, check=True, capture_output=True, text=True)
+            config = json.loads((Path(root) / ".claude/settings.json").read_text())
+            command = config["hooks"]["Stop"][0]["hooks"][0]["command"]
+            self.assertIn(str(Path(root) / "data/agent-park/integration/agent_hook.py"), command)
+            self.assertTrue((Path(root) / "data/agent-park/integration/agent_hook.py").is_file())
+
+    def test_hook_state_is_private(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root) / 'state'
+            agent_hook.record('claude', {'hook_event_name': 'Stop'}, 42, str(state), now=100)
+            self.assertEqual((state.stat().st_mode & 0o777), 0o700)
+            self.assertEqual(((state / '42.json').stat().st_mode & 0o777), 0o600)
+
+    def test_merge_is_idempotent_and_uninstall_preserves_other_hooks(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'settings.json'
+            original = {'theme': 'dark', 'hooks': {'Stop': [{'matcher': 'x', 'hooks': [{'type': 'command', 'command': 'existing'}]}]}}
+            path.write_text(json.dumps(original))
+            with patch.dict(agent_park.EVENTS, {'claude': (path, ['Stop', 'PreToolUse'])}):
+                agent_park.configure('claude')
+                first = json.loads(path.read_text())
+                agent_park.configure('claude')
+                self.assertEqual(first, json.loads(path.read_text()))
+                agent_park.configure('claude', remove=True)
+                self.assertEqual(original, json.loads(path.read_text()))
+
+    def test_invalid_configuration_is_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'settings.json'
+            path.write_text('{ broken')
+            with patch.dict(agent_park.EVENTS, {'claude': (path, ['Stop'])}):
+                with self.assertRaises(ValueError):
+                    agent_park.configure('claude')
+            self.assertEqual('{ broken', path.read_text())
+
+    def test_existing_manual_hook_is_not_duplicated_or_removed(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'settings.json'
+            manual = {'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': f'python3 {agent_park.ROOT}/agent_hook.py claude'}]}]}}
+            path.write_text(json.dumps(manual))
+            with patch.dict(agent_park.EVENTS, {'claude': (path, ['Stop'])}):
+                agent_park.configure('claude')
+                agent_park.configure('claude', remove=True)
+            self.assertEqual(manual, json.loads(path.read_text()))
+
+    def test_symlink_conflict_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'plugin.js'
+            path.write_text('user plugin')
+            with patch.dict(agent_park.LINKS, {'pi': (path, Path(root) / 'target')}):
+                with self.assertRaises(ValueError):
+                    agent_park.configure('pi')
+                self.assertEqual('user plugin', path.read_text())
+
+    def test_symlink_uninstall_only_removes_our_link(self):
+        with tempfile.TemporaryDirectory() as root:
+            path, target = Path(root) / 'plugin.js', Path(root) / 'target'
+            target.write_text('extension')
+            with patch.dict(agent_park.LINKS, {'pi': (path, target)}):
+                agent_park.configure('pi')
+                self.assertEqual(path.resolve(), target)
+                agent_park.configure('pi', remove=True)
+                self.assertFalse(path.exists())
+                self.assertTrue(target.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

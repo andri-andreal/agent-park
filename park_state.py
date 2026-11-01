@@ -62,6 +62,7 @@ class State:
                 "id": str(key), "kind": kind, "name": self.name(key, kind, sessions),
                 "species": species, "color": xterm_hex(shade), "status": status,
                 "model": short_model(self.agents.models.get(key, "")),
+                "status_info": getattr(self.agents, "status_meta", {}).get(key, {"source": "unknown", "updated_at": None}),
                 "subagents": [{"id": agent, "type": kind}
                               for agent, kind in self.agents.subagents.get(key, [])],
             })

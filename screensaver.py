@@ -213,6 +213,7 @@ class AgentMonitor:
         self.proc, self.state_dir, self.clock = proc, state_dir, clock
         self.subagents = {}  # session key -> [(agent id, agent type)], set by poll
         self.models = {}  # session key -> model name its hook reported, set by poll
+        self.status_meta = {}  # session key -> source and last hook event time
         self.ticks_per_second = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
         self.history = {}
 
@@ -250,7 +251,9 @@ class AgentMonitor:
         if data.get("model"):
             self.models[pid] = str(data["model"])
         if data["state"] == "work" and not busy and self.clock() - data.get("time", 0) > HOOK_STALE:
+            self.status_meta[pid] = {"source": "cpu", "updated_at": data.get("time"), "stale": True}
             return "idle"
+        self.status_meta[pid] = {"source": "hook", "updated_at": data.get("time"), "stale": False}
         return data["state"]
 
     def shared_sessions(self, kind, windows):
@@ -352,13 +355,14 @@ class AgentMonitor:
                 parent = procs[parent][2]
             if pid not in sessions and parent in sessions:
                 sessions[parent][1] += ticks
-        found, self.models = {}, {}
+        found, self.models, self.status_meta = {}, {}, {}
         for pid, (kind, ticks) in sessions.items():
             samples = self.history.get(pid, [])[-AGENT_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples
             (start, first), (end, last) = samples[0], samples[-1]
             busy = end > start and (last - first) / self.ticks_per_second / (end - start) >= AGENT_BUSY_CPU
             found[pid] = kind, self.hook_status(pid, kind, busy) or ("work" if busy else "idle")
+            self.status_meta.setdefault(pid, {"source": "cpu", "updated_at": None, "stale": False})
         self.history = {pid: self.history[pid] for pid in found}
         self.forget_dead(set(pids))
         for kind in AGENTS:
@@ -368,8 +372,10 @@ class AgentMonitor:
             shared = self.shared_sessions(kind, len(windows))
             for pid in windows[:len(shared)]:
                 del found[pid]
-            for _, session, status, model in shared:
+                self.status_meta.pop(pid, None)
+            for updated, session, status, model in shared:
                 found[f"{kind}:{session}"] = kind, status
+                self.status_meta[f"{kind}:{session}"] = {"source": "hook", "updated_at": updated, "stale": False, "association": "recent-session"}
                 if model:
                     self.models[f"{kind}:{session}"] = model
         self.subagents = self.read_subagents(found)
@@ -1612,6 +1618,8 @@ if __name__ == "__main__":
         print("Jalankan langsung di terminal: python3 screensaver.py", file=sys.stderr)
         sys.exit(1)
     try:
+        from agent_park import prompt_setup
+        prompt_setup()
         # Only agent cats by default; --semua brings back the wild animals too.
         curses.wrapper(main, "--semua" in sys.argv[1:])
     except KeyboardInterrupt:

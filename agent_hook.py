@@ -20,6 +20,7 @@ import re
 import sqlite3
 import sys
 import time
+import tempfile
 
 STATE_DIR = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or os.path.expanduser("~/.cache"), "agent-park")
@@ -160,12 +161,16 @@ def read(path):
 
 
 def write(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     # Write then rename so the screensaver never reads half a file.
-    temporary = f"{path}.{os.getpid()}.tmp"
-    with open(temporary, "w") as file:
-        json.dump(data, file)
-    os.replace(temporary, path)
+    fd, temporary = tempfile.mkstemp(prefix=".agent-park-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w") as file:
+            json.dump(data, file)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def remove(path):

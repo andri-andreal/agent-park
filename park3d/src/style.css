@@ -35,3 +35,17 @@ canvas.scene { display: block; }
 .label.sub { font-size: 11px; font-weight: 600; opacity: .9; }
 .sign { color: #fff; background: #2b3a4a; border: 2px solid #8fa3b3; padding: 2px 10px; border-radius: 6px;
   font-weight: 700; font-size: 13px; white-space: nowrap; }
+#agents-panel { position: fixed; right: 16px; bottom: 16px; width: min(300px, calc(100vw - 32px));
+  max-height: 60vh; overflow: auto; box-sizing: border-box; background: var(--panel); padding: 10px 12px; border-radius: 10px; }
+#agents-panel summary { cursor: pointer; font-weight: 700; }
+#agents-panel label { display: block; margin-top: 6px; }
+#agents-panel button, #agents-panel select { color: #17232a; max-width: 100%; }
+#agent-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+#agent-detail, #alert-result { color: var(--muted); white-space: pre-line; font-size: 12px; }
+#setup-dialog { width: min(420px, calc(100vw - 48px)); box-sizing: border-box; border: 0; border-radius: 12px; padding: 24px; color: #203039; background: #fff; }
+#setup-dialog::backdrop { background: #101820aa; }
+#setup-dialog h2 { margin-top: 0; }
+#setup-agents label { display: block; margin: 8px 0; }
+#setup-agents small { display: block; color: #52646e; margin-left: 24px; }
+#setup-result { white-space: pre-line; }
+.setup-actions { display: flex; justify-content: flex-end; gap: 8px; }

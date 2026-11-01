@@ -362,6 +362,126 @@ let lastState = 0
 const message = document.getElementById("message")
 const clockLabel = document.getElementById("clock")
 const statsLabel = document.getElementById("stats")
+const setupDialog = document.getElementById("setup-dialog")
+const setupAgents = document.getElementById("setup-agents")
+const setupResult = document.getElementById("setup-result")
+const setupRun = document.getElementById("setup-run")
+let invokeSetup
+
+async function setupPrompt(force = false) {
+  if (!window.__TAURI_INTERNALS__) return
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    invokeSetup = invoke
+    const agents = JSON.parse(await invoke("integration_setup", { agents: null }))
+    const pending = agents.filter((agent) => !agent.configured && agent.automatic)
+    if (!force && !pending.length) return
+    setupAgents.replaceChildren()
+    for (const agent of agents) {
+      const label = document.createElement("label"), input = document.createElement("input"), detail = document.createElement("small")
+      input.type = "checkbox"; input.value = agent.kind
+      input.disabled = agent.configured || !agent.automatic
+      input.checked = !input.disabled
+      label.append(input, ` ${agent.kind}`)
+      detail.textContent = agent.configured ? "Already configured" : agent.detail
+      label.append(detail); setupAgents.append(label)
+    }
+    if (!agents.length) setupAgents.textContent = "No supported agents found on PATH."
+    setupRun.disabled = !pending.length
+    setupResult.textContent = "Codex hooks require approval in /hooks. Restart OpenCode and Pi after setup. Kiro and Kimi use manual setup in the README."
+    if (!setupDialog.open) setupDialog.showModal()
+  } catch (error) {
+    setupResult.textContent = `Could not check setup: ${error}`
+    setupRun.disabled = true
+    if (!setupDialog.open) setupDialog.showModal()
+  }
+}
+document.getElementById("setup-open").addEventListener("click", () => setupPrompt(true))
+document.getElementById("setup-skip").addEventListener("click", () => setupDialog.close())
+setupRun.addEventListener("click", async () => {
+  const agents = [...setupAgents.querySelectorAll("input:checked:not(:disabled)")].map((input) => input.value)
+  if (!agents.length) { setupResult.textContent = "Select at least one agent."; return }
+  setupRun.disabled = true
+  setupResult.textContent = "Configuring..."
+  try {
+    const result = await invokeSetup("integration_setup", { agents })
+    setupResult.textContent = `${result}\nApprove Codex hooks in /hooks. Restart OpenCode and Pi after setup.`
+    setupAgents.querySelectorAll("input:checked").forEach((input) => { input.checked = false; input.disabled = true })
+  } catch (error) { setupResult.textContent = `Setup failed: ${error}`; setupRun.disabled = false }
+})
+setupPrompt()
+const agentList = document.getElementById("agent-list")
+const agentDetail = document.getElementById("agent-detail")
+const alertAgent = document.getElementById("alert-agent")
+const alertResult = document.getElementById("alert-result")
+const settings = ["alerts", "sound", "alert-agent", "alert-interval"]
+for (const id of settings) {
+  const element = document.getElementById(id)
+  const saved = localStorage.getItem(`agent-park-${id}`)
+  if (saved !== null && id !== "alert-agent") {
+    if (element.type === "checkbox") element.checked = saved === "true"
+    else element.value = saved
+  }
+  element.addEventListener("change", () => localStorage.setItem(`agent-park-${id}`, element.type === "checkbox" ? element.checked : element.value))
+}
+let selectedAgent = null
+const lastAlert = new Map()
+let lastKinds = ""
+
+async function attention(info) {
+  if (!document.getElementById("alerts").checked || (alertAgent.value && alertAgent.value !== info.kind)) return
+  const now = Date.now(), interval = Number(document.getElementById("alert-interval").value) * 1000
+  if (now - (lastAlert.get(info.id) || 0) < interval) return
+  lastAlert.set(info.id, now)
+  try {
+    if (!window.__TAURI_INTERNALS__) throw new Error("Desktop alerts require the desktop app")
+    const { invoke } = await import("@tauri-apps/api/core")
+    await invoke("notify_attention", { name: info.name })
+    alertResult.textContent = ""
+    if (document.getElementById("sound").checked) {
+      const audio = new AudioContext(), oscillator = audio.createOscillator(), gain = audio.createGain()
+      oscillator.frequency.value = 660
+      gain.gain.setValueAtTime(0.05, audio.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.25)
+      oscillator.connect(gain).connect(audio.destination)
+      oscillator.start(); oscillator.stop(audio.currentTime + 0.25)
+      oscillator.onended = () => audio.close()
+    }
+  } catch (error) { alertResult.textContent = String(error) }
+}
+
+function showAgents(infos) {
+  const kinds = [...new Set(infos.map((info) => info.kind))].sort()
+  const wanted = alertAgent.value || localStorage.getItem("agent-park-alert-agent") || ""
+  if (wanted && !kinds.includes(wanted)) kinds.push(wanted)
+  const kindKey = kinds.join("\0")
+  if (kindKey !== lastKinds) {
+    alertAgent.replaceChildren(new Option("All agents", ""), ...kinds.map((kind) => new Option(kind, kind)))
+    if (kinds.includes(wanted)) alertAgent.value = wanted
+    lastKinds = kindKey
+  }
+  const agentKey = JSON.stringify(infos.map(({ id, name }) => [id, name]).concat([[selectedAgent]]))
+  if (agentList.dataset.key !== agentKey) {
+    agentList.dataset.key = agentKey
+    agentList.replaceChildren()
+    for (const info of infos) {
+      const button = document.createElement("button")
+      button.textContent = info.name
+      button.setAttribute("aria-pressed", String(selectedAgent === info.id))
+      button.onclick = () => { selectedAgent = info.id; showAgents(infos) }
+      agentList.append(button)
+    }
+    if (!infos.length) agentList.textContent = "No agents detected."
+  }
+  const info = infos.find((entry) => entry.id === selectedAgent)
+  if (!info) {
+    agentDetail.textContent = selectedAgent ? "Agent no longer active." : "Select an agent for details."
+    return
+  }
+  const meta = info.status_info || {}, animal = animals.get(info.id)
+  const updated = meta.updated_at ? `${duration(Math.max(0, Date.now() / 1000 - meta.updated_at))} ago` : "unavailable"
+  agentDetail.textContent = `${info.name} · ${info.model || "model unknown"}\nStatus: ${info.status} (${duration((performance.now() - animal.statusSince) / 1000)})\nSource: ${meta.source || "unknown"}${meta.stale ? " (hook stale)" : ""}\nLast hook: ${updated}${meta.association ? "\nSession matched by recency; window association uncertain" : ""}`
+}
 
 function duration(seconds) {
   if (seconds < 60) return `${Math.floor(seconds)}s`
@@ -373,9 +493,14 @@ function apply(state) {
   lastState = performance.now()
   for (const animal of animals.values()) animal.seen = false
   for (const info of state.agents) {
-    const animal = animals.get(info.id) || addAnimal(info.id, info)
+    const existing = animals.get(info.id)
+    const animal = existing || addAnimal(info.id, info)
     animal.seen = true
-    if (animal.status !== "wait" && info.status === "wait") say(`${info.name} needs your approval!`)
+    if (!existing || animal.status !== info.status) animal.statusSince = performance.now()
+    if ((!existing || animal.status !== "wait") && info.status === "wait") {
+      say(`${info.name} needs your attention!`)
+      attention(info)
+    }
     animal.status = info.status
     setText(animal.model, info.model || "")
     for (const sub of info.subagents) {
@@ -387,6 +512,7 @@ function apply(state) {
       animals.get(id).seen = true
     }
   }
+  showAgents(state.agents)
   for (const animal of animals.values()) {
     if (!animal.seen) leave(animal, animal.baby ? null : `${animal.label} finished working. Bye!`)
   }

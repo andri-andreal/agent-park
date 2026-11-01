@@ -1,6 +1,7 @@
 """Simulation checks; no real terminal or waiting required."""
 
 import io
+from contextlib import closing
 import json
 import os
 import shutil
@@ -355,10 +356,13 @@ class AgentTests(unittest.TestCase):
             hook(77, "claude", "UserPromptSubmit")  # a session that died without SessionEnd
             hook(10, "claude", "Notification", notification_type="auth_success")  # ignored
             self.assertEqual(monitor.poll(1), {10: ("claude", "wait"), 11: ("codex", "work")})
+            self.assertEqual(monitor.status_meta[10], {"source": "hook", "updated_at": 1000.0, "stale": False})
             self.assertFalse(os.path.exists(f"{state}/77.json"))
             # Claude sends nothing on Esc: a stale "work" gives way to idle CPU...
             clock[0] += 100
             self.assertEqual(monitor.poll(2)[11], ("codex", "idle"))
+            self.assertEqual(monitor.status_meta[11]["source"], "cpu")
+            self.assertTrue(monitor.status_meta[11]["stale"])
             # ...but not while the process is still busy.
             self.fake_proc(root, 11, "codex", 100)
             self.assertEqual(monitor.poll(3)[11], ("codex", "work"))
@@ -505,10 +509,11 @@ class AgentTests(unittest.TestCase):
                 hook(11, "kiro-cli", "userPromptSubmit", session_id="k1")
             # OpenCode 2: the session table, opened read-only.
             database = f"{root}/opencode.db"
-            with sqlite3.connect(database) as db:
+            with closing(sqlite3.connect(database)) as db:
                 db.execute("CREATE TABLE session_v2 (id TEXT, model TEXT)")
                 db.execute("INSERT INTO session_v2 VALUES ('ses_1', ?)",
                            (json.dumps({"id": "MiniMax-M3.1-Flash", "providerID": "minimax"}),))
+                db.commit()
             with mock.patch.object(agent_hook, "OPENCODE_DB", database):
                 hook(12, "opencode", "UserPromptSubmit", session_id="ses_1")
             # Pi names it in the event; a model switch alone keeps what the animal does.
