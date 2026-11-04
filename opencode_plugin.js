@@ -10,6 +10,8 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // Resolve the link so the hook is found next to the real file.
+// Windows has no python3; AGENT_PARK_PYTHON overrides either way.
+const PYTHON = process.env.AGENT_PARK_PYTHON || (process.platform === "win32" ? "python" : "python3")
 const HOOK = join(dirname(realpathSync(fileURLToPath(import.meta.url))), "agent_hook.py")
 // What the cat should do -> the hook event agent_hook.py maps to it.
 const HOOK_EVENTS = { work: "UserPromptSubmit", wait: "PermissionRequest", idle: "Stop" }
@@ -19,7 +21,7 @@ let queue = Promise.resolve()
 function send(event) {
   queue = queue.then(() => new Promise((done) => {
     try {
-      const child = spawn("python3", [HOOK, "opencode"], { stdio: ["pipe", "ignore", "ignore"] })
+      const child = spawn(PYTHON, [HOOK, "opencode"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true })
       child.on("error", done)
       child.on("close", done)
       child.stdin.on("error", () => {})

@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """A tiny, unpredictable ASCII animal park. Standard library only."""
 
-import curses
+try:
+    import curses
+except ImportError:  # Windows without windows-curses: the 3D app only needs the monitors below
+    from types import SimpleNamespace
+    curses = SimpleNamespace(
+        COLOR_BLACK=0, COLOR_RED=1, COLOR_GREEN=2, COLOR_YELLOW=3, COLOR_BLUE=4, COLOR_MAGENTA=5,
+        COLOR_CYAN=6, COLOR_WHITE=7, A_NORMAL=0, A_BOLD=0, A_DIM=0, A_REVERSE=0, A_BLINK=0, error=OSError)
+    HAVE_CURSES = False
+else:
+    HAVE_CURSES = True
 from dataclasses import dataclass
 import json
 import math
@@ -13,6 +22,7 @@ import time
 from urllib.parse import urlsplit
 
 from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of
+from platform_support import python_command, source_for
 from usage_limits import UsageMonitor, mood_face, until
 
 
@@ -210,37 +220,32 @@ class Raid:
 
 
 class AgentMonitor:
-    """Polls /proc for AI agent sessions and guesses if they are working."""
+    """Polls the running processes for AI agent sessions and guesses if they are working."""
 
-    def __init__(self, proc="/proc", state_dir=STATE_DIR, clock=time.time):
-        self.proc, self.state_dir, self.clock = proc, state_dir, clock
+    def __init__(self, proc=None, state_dir=STATE_DIR, clock=time.time):
+        self.source = source_for(proc)  # /proc on Linux, psutil elsewhere
+        self.state_dir, self.clock = state_dir, clock
         self.subagents = {}  # session key -> [(agent id, agent type)], set by poll
         self.models = {}  # session key -> model name its hook reported, set by poll
         self.status_meta = {}  # session key -> source and last hook event time
-        self.ticks_per_second = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+        self.ticks_per_second = self.source.ticks_per_second
         self.history = {}
 
     def read(self, pid):
-        with open(f"{self.proc}/{pid}/comm") as file:
-            comm = file.read().strip()
+        comm = self.source.name(pid)
         if AGENT_PROCESSES.get(comm, comm) not in AGENTS and comm != "node":
             return None
-        with open(f"{self.proc}/{pid}/cmdline", "rb") as file:
-            args = file.read().decode(errors="replace").split("\0")
+        args = self.source.args(pid)
         kind = agent_of(comm, args)
         if kind not in AGENTS:
             return None
         helper = any(arg in HELPER_ARGS for arg in args)
-        with open(f"{self.proc}/{pid}/stat") as file:
-            # The command name may contain spaces, so split after its ")".
-            fields = file.read().rsplit(")", 1)[1].split()
-        return kind, helper, int(fields[1]), int(fields[11]) + int(fields[12])
+        return kind, helper, self.source.parent(pid), self.source.cpu_ticks(pid)
 
     def parent_of(self, pid):
         try:
-            with open(f"{self.proc}/{pid}/stat") as file:
-                return int(file.read().rsplit(")", 1)[1].split()[1])
-        except (OSError, ValueError, IndexError):
+            return self.source.parent(pid)
+        except (OSError, ValueError):
             return 0
 
     def hook_status(self, pid, kind, busy):
@@ -331,9 +336,9 @@ class AgentMonitor:
     def poll(self, now):
         """Return {pid: (kind, status)} for every running agent session."""
         try:
-            pids = [int(name) for name in os.listdir(self.proc) if name.isdigit()]
+            pids = self.source.pids()
         except OSError:
-            return {}  # no /proc (e.g. macOS): no agent cats
+            return {}  # no way to list processes here: no agent cats
         procs = {}
         for pid in pids:
             try:
@@ -388,10 +393,10 @@ class AgentMonitor:
 class ProcessWatcher:
     """Spots processes started after the screensaver that turn heavy."""
 
-    def __init__(self, proc="/proc"):
-        self.proc = proc
-        self.ticks_per_second = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
-        self.page = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+    def __init__(self, proc=None):
+        self.source = source_for(proc)
+        self.ticks_per_second = self.source.ticks_per_second
+        self.page = self.source.page_size
         self.known = None  # {pid: name} running when we started: never monsters
         self.history = {}
         self.fought = set()
@@ -401,8 +406,7 @@ class ProcessWatcher:
         if name != "node":
             return False
         try:
-            with open(f"{self.proc}/{pid}/cmdline", "rb") as file:
-                args = file.read().decode(errors="replace").split("\0")
+            args = self.source.args(pid)
         except OSError:
             return False
         return agent_of(name, args) in AGENTS
@@ -410,14 +414,13 @@ class ProcessWatcher:
     def poll(self, now):
         """Return [(pid, name, detail)] of current monsters, heaviest first."""
         try:
-            pids = {int(name) for name in os.listdir(self.proc) if name.isdigit()}
+            pids = set(self.source.pids())
         except OSError:
             return []
         names = {}
         for pid in pids:
             try:
-                with open(f"{self.proc}/{pid}/comm") as file:
-                    names[pid] = file.read().strip()
+                names[pid] = self.source.name(pid)
             except OSError:
                 pass
         if self.known is None:
@@ -429,15 +432,12 @@ class ProcessWatcher:
         monsters = []
         for pid in names.keys() - self.known.keys() - self.fought - {os.getpid()}:
             name = names[pid]
-            try:
-                with open(f"{self.proc}/{pid}/stat") as file:
-                    # The command name may contain spaces, so split after its ")".
-                    fields = file.read().rsplit(")", 1)[1].split()
-                ticks, rss = int(fields[11]) + int(fields[12]), int(fields[21]) * self.page
-            except (OSError, ValueError, IndexError):
-                continue
             if name in AGENTS or name in AGENT_PROCESSES or name == ROUTER or self.node_agent(pid, name):
                 continue  # agents and their routers are the heroes, not the monsters
+            try:
+                ticks, rss = self.source.cpu_ticks(pid), self.source.rss_pages(pid) * self.page
+            except (OSError, ValueError):
+                continue
             samples = self.history.get(pid, [])[-MONSTER_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples
             (start, first), (end, last) = samples[0], samples[-1]
@@ -453,10 +453,10 @@ class ProcessWatcher:
 
 
 class SystemMonitor:
-    """Whole-machine CPU, RAM, swap and load from /proc."""
+    """Whole-machine CPU, RAM, swap and load."""
 
-    def __init__(self, proc="/proc"):
-        self.proc = proc
+    def __init__(self, proc=None):
+        self.source = source_for(proc)
         self.last = None  # (idle, total) jiffies at the previous poll
         self.cpu = None  # busy fraction since the previous poll
         self.history = []  # recent CPU fractions, oldest first
@@ -465,24 +465,14 @@ class SystemMonitor:
 
     def poll(self):
         try:
-            with open(f"{self.proc}/stat") as file:
-                fields = [int(value) for value in file.readline().split()[1:]]
-            with open(f"{self.proc}/meminfo") as file:
-                info = {line.split(":")[0]: int(line.split()[1]) * 1024 for line in file}
-            with open(f"{self.proc}/loadavg") as file:
-                self.load = float(file.read().split()[0])
-            memory = info["MemTotal"]
-        except (OSError, ValueError, IndexError, KeyError):
-            return False  # no /proc (e.g. macOS): the panel stays hidden
-        idle = sum(fields[3:5])  # idle + iowait
-        total = sum(fields[:8])  # guest time is already part of user
-        if self.last and total > self.last[1]:
-            self.cpu = 1 - (idle - self.last[0]) / (total - self.last[1])
+            sample = self.source.system()
+        except OSError:
+            return False  # no way to read the machine here: the panel stays hidden
+        if self.last and sample.total > self.last[1]:
+            self.cpu = 1 - (sample.idle - self.last[0]) / (sample.total - self.last[1])
             self.history = (self.history + [self.cpu])[-SYSTEM_HISTORY:]
-        self.last = idle, total
-        self.ram = memory - info.get("MemAvailable", info.get("MemFree", 0)), memory
-        swap = info.get("SwapTotal", 0)
-        self.swap = swap - info.get("SwapFree", swap), swap
+        self.last = sample.idle, sample.total
+        self.ram, self.swap, self.load = sample.ram, sample.swap, sample.load
         return True
 
     @property
@@ -509,8 +499,9 @@ class Router:
 class RouterMonitor:
     """ccx-router processes: which ccx profile each serves and whether it talks."""
 
-    def __init__(self, proc="/proc"):
-        self.proc = proc
+    def __init__(self, proc=None):
+        # ccx-router is a Linux tool and reads /proc itself; elsewhere it simply finds none.
+        self.proc = str(proc) if isinstance(proc, (str, os.PathLike)) else "/proc"
         self.ticks_per_second = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
         self.ticks = {}  # pid -> CPU ticks at the previous poll
 
@@ -1697,8 +1688,11 @@ def main(screen, wild=False):
 
 
 if __name__ == "__main__":
+    if not HAVE_CURSES:
+        print("The terminal park needs curses. On Windows: pip install windows-curses", file=sys.stderr)
+        sys.exit(1)
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print("Jalankan langsung di terminal: python3 screensaver.py", file=sys.stderr)
+        print(f"Run it directly in a terminal: {python_command()} screensaver.py", file=sys.stderr)
         sys.exit(1)
     try:
         from agent_park import prompt_setup

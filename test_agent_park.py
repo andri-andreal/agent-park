@@ -11,6 +11,18 @@ import agent_park
 import agent_hook
 
 
+def can_symlink():
+    with tempfile.TemporaryDirectory() as root:
+        try:
+            (Path(root) / "link").symlink_to(Path(root))
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+CAN_SYMLINK = can_symlink()
+
+
 class SetupTests(unittest.TestCase):
     def test_launch_prompt_requires_opt_in(self):
         pending = [{"kind": "claude", "automatic": True, "configured": False}]
@@ -22,14 +34,17 @@ class SetupTests(unittest.TestCase):
 
     def test_desktop_setup_uses_persistent_files(self):
         with tempfile.TemporaryDirectory() as root:
-            env = dict(os.environ, HOME=root, XDG_DATA_HOME=str(Path(root) / "data"))
+            data = str(Path(root) / "data")
+            env = dict(os.environ, HOME=root, USERPROFILE=root, XDG_DATA_HOME=data, LOCALAPPDATA=data)
             subprocess.run([sys.executable, str(agent_park.ROOT / "agent_park.py"), "onboarding-setup", "claude"],
                            env=env, check=True, capture_output=True, text=True)
             config = json.loads((Path(root) / ".claude/settings.json").read_text())
             command = config["hooks"]["Stop"][0]["hooks"][0]["command"]
-            self.assertIn(str(Path(root) / "data/agent-park/integration/agent_hook.py"), command)
+            # Windows writes forward slashes into the command; elsewhere as_posix() changes nothing.
+            self.assertIn((Path(root) / "data/agent-park/integration/agent_hook.py").as_posix(), command)
             self.assertTrue((Path(root) / "data/agent-park/integration/agent_hook.py").is_file())
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX permission bits do not exist on Windows")
     def test_hook_state_is_private(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root) / 'state'
@@ -78,6 +93,7 @@ class SetupTests(unittest.TestCase):
                     agent_park.configure('pi')
                 self.assertEqual('user plugin', path.read_text())
 
+    @unittest.skipUnless(CAN_SYMLINK, "creating symlinks needs Developer Mode or elevation on Windows")
     def test_symlink_uninstall_only_removes_our_link(self):
         with tempfile.TemporaryDirectory() as root:
             path, target = Path(root) / 'plugin.js', Path(root) / 'target'
@@ -88,6 +104,19 @@ class SetupTests(unittest.TestCase):
                 agent_park.configure('pi', remove=True)
                 self.assertFalse(path.exists())
                 self.assertTrue(target.exists())
+
+
+class CommandParsingTests(unittest.TestCase):
+    def test_windows_commands_keep_their_backslashes(self):
+        windows = r'"C:\Program Files\Python312\python.exe" "C:\Users\a\agent_hook.py" claude'
+        with patch.object(agent_park, "is_windows", return_value=True):
+            self.assertEqual(agent_park.split_command(windows),
+                             [r"C:\Program Files\Python312\python.exe", r"C:\Users\a\agent_hook.py", "claude"])
+            self.assertEqual(agent_park.split_command("python C:/x/agent_hook.py claude"),
+                             ["python", "C:/x/agent_hook.py", "claude"])
+        with patch.object(agent_park, "is_windows", return_value=False):
+            self.assertEqual(agent_park.split_command("'/a b/python' /x/agent_hook.py claude"),
+                             ["/a b/python", "/x/agent_hook.py", "claude"])
 
 
 class ProcessNameTests(unittest.TestCase):

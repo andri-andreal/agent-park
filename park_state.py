@@ -35,7 +35,7 @@ def xterm_hex(index):
 
 
 class State:
-    def __init__(self, proc="/proc", agents=None, system=None, watcher=None, routers=None, usage=None):
+    def __init__(self, proc=None, agents=None, system=None, watcher=None, routers=None, usage=None):
         self.agents = agents or AgentMonitor(proc)
         self.system = system or SystemMonitor(proc)
         self.watcher = watcher or ProcessWatcher(proc)

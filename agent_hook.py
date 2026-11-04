@@ -16,14 +16,20 @@ transcript tells it.
 import glob
 import json
 import os
+from pathlib import Path
 import re
 import sqlite3
 import sys
 import time
 import tempfile
 
-STATE_DIR = os.path.join(
-    os.environ.get("XDG_RUNTIME_DIR") or os.path.expanduser("~/.cache"), "agent-park")
+try:
+    from platform_support import is_windows, source_for, state_dir
+except ImportError:
+    # Copied without its companion file: a screensaver must never break the agent's turn.
+    sys.exit(0)
+
+STATE_DIR = state_dir()
 
 # Background helpers are not sessions; their CPU counts for the parent session.
 # Codex's app-server and OpenCode's `serve` run every window's hooks.
@@ -73,25 +79,22 @@ def agent_of(comm, args):
     return AGENT_PROCESSES.get(comm, comm)
 
 
-def session_pid(kind, proc="/proc", start=None):
+def session_pid(kind, proc=None, start=None):
     """Pid of the session process running this hook, or 0 for a shared helper.
 
     The outermost process of that agent wins, as the screensaver counts an
     agent's own child processes (e.g. kiro-cli -> kiro-cli-chat) as one session.
     """
-    pid, found = start or os.getppid(), 0
-    while pid > 1:
-        with open(f"{proc}/{pid}/comm") as file:
-            comm = file.read().strip()
-        with open(f"{proc}/{pid}/cmdline", "rb") as cmdline:
-            args = cmdline.read().decode(errors="replace").split("\0")
+    source = source_for(proc)
+    pid, found, seen = start or os.getppid(), 0, set()
+    while pid > 1 and pid not in seen:  # Windows recycles pids: never walk in circles
+        seen.add(pid)
+        comm, args = source.name(pid), source.args(pid)
         if agent_of(comm, args) == kind:
             if not found and any(arg in HELPER_ARGS for arg in args):
                 return 0
             found = pid
-        with open(f"{proc}/{pid}/stat") as file:
-            # The command name may contain spaces, so split after its ")".
-            pid = int(file.read().rsplit(")", 1)[1].split()[1])
+        pid = source.parent(pid)
     return found
 
 
@@ -123,7 +126,7 @@ def transcript_model(path):
 
 def opencode_model(session):
     try:
-        db = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=0.5)
+        db = sqlite3.connect(f"{Path(OPENCODE_DB).absolute().as_uri()}?mode=ro", uri=True, timeout=0.5)
         try:
             row = db.execute("SELECT model FROM session_v2 WHERE id = ?", (session,)).fetchone()
         finally:
@@ -160,6 +163,17 @@ def read(path):
         return {}
 
 
+def replace(source, destination, attempts=20, pause=0.01):
+    """os.replace, retried on Windows, where it fails while the screensaver has the file open."""
+    for attempt in range(attempts):
+        try:
+            return os.replace(source, destination)
+        except PermissionError:
+            if not is_windows() or attempt == attempts - 1:
+                raise
+            time.sleep(pause)
+
+
 def write(path, data):
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     # Write then rename so the screensaver never reads half a file.
@@ -167,7 +181,7 @@ def write(path, data):
     try:
         with os.fdopen(fd, "w") as file:
             json.dump(data, file)
-        os.replace(temporary, path)
+        replace(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.remove(temporary)

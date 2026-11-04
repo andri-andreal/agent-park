@@ -4,12 +4,14 @@ import argparse
 import copy
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shlex
 import shutil
 import sys
 import tempfile
 import subprocess
+
+from platform_support import data_dir, describe, is_windows
 
 ROOT = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -28,22 +30,59 @@ def find_agent(kind, binary):
     found = shutil.which(binary)
     if found:
         return found
+    # Windows installs ship .exe or .cmd files; shutil.which knows, a bare directory lookup does not.
+    suffixes = ("", ".exe", ".cmd") if is_windows() else ("",)
     for directory in (HOME / ".local/bin", BIN_DIRS.get(kind, HOME / ".local/bin")):
-        path = directory / binary
-        if path.is_file() and os.access(path, os.X_OK):
-            return str(path)
+        for suffix in suffixes:
+            path = directory / (binary + suffix)
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
     return None
 
 
+def quote(text):
+    return f'"{text}"' if is_windows() else shlex.quote(text)
+
+
 def command(kind):
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'agent_hook.py'))} {kind}"
+    """The hook command line. On Windows: double quotes and forward slashes, which cmd.exe,
+    Git Bash and Python all read, and which shlex.split below parses back unharmed."""
+    python, hook = sys.executable, str(ROOT / "agent_hook.py")
+    if is_windows():
+        python, hook = PureWindowsPath(python).as_posix(), PureWindowsPath(hook).as_posix()
+    return f"{quote(python)} {quote(hook)} {kind}"
+
+
+def split_command(text):
+    """A hook command's words. Windows quoting keeps its backslashes, which shlex would eat."""
+    if not is_windows():
+        return shlex.split(text)
+    return [word[1:-1] if len(word) > 1 and word[0] == word[-1] == '"' else word
+            for word in shlex.split(text, posix=False)]
+
+
+def wrapper(target):
+    """Stands in for a symlink where those are not allowed: loads the real plugin from where it
+    lives, so the plugin still finds agent_hook.py next to itself."""
+    url = target.resolve().as_uri()
+    return f'// Agent Park: loads the real plugin from where it lives.\nexport * from "{url}"\nexport {{ default }} from "{url}"\n'
+
+
+def link_state(path, target):
+    """"linked" (a symlink to the plugin), "wrapped" (our stand-in for one) or "" (neither)."""
+    if path.is_symlink():
+        return "linked" if path.exists() and path.resolve().name == target.name else ""
+    try:
+        return "wrapped" if path.is_file() and path.read_text() == wrapper(target) else ""
+    except (OSError, UnicodeDecodeError):
+        return ""
 
 
 def equivalent_hook(hook, kind):
     if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
         return False
     try:
-        args = shlex.split(hook["command"])
+        args = split_command(hook["command"])
         return (len(args) == 3 and Path(args[0]).name.startswith("python")
                 and Path(args[1]).resolve() == ROOT / "agent_hook.py" and args[2] == kind)
     except ValueError:
@@ -55,7 +94,7 @@ def park_hook(hook, kind):
     if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
         return False
     try:
-        args = shlex.split(hook["command"])
+        args = split_command(hook["command"])
         path = Path(args[1]).expanduser() if len(args) == 3 else None
         return bool(path and Path(args[0]).name.startswith("python") and
                     path.name == "agent_hook.py" and path.is_file() and args[2] == kind)
@@ -86,7 +125,7 @@ def integration_status():
                 result.append({"kind": kind, "configured": False, "automatic": False, "detail": str(error)})
         elif kind in LINKS:
             path, target = LINKS[kind]
-            configured = path.is_symlink() and path.exists() and path.resolve().name == target.name
+            configured = bool(link_state(path, target))
             conflict = (path.exists() or path.is_symlink()) and not configured
             result.append({"kind": kind, "configured": configured, "automatic": not conflict,
                            "detail": "configured" if configured else ("plugin path already exists" if conflict else "not configured")})
@@ -122,7 +161,8 @@ def save(path, data):
 def configure(kind, remove=False):
     if kind in LINKS:
         path, target = LINKS[kind]
-        if path.is_symlink() and path.resolve() == target:
+        state = link_state(path, target)
+        if state == "wrapped" or (state == "linked" and path.resolve() == target):
             if remove:
                 path.unlink()
             return "removed" if remove else "already installed"
@@ -131,7 +171,12 @@ def configure(kind, remove=False):
         if path.exists() or path.is_symlink():
             raise ValueError(f"{path} already exists; left unchanged")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.symlink_to(target)
+        try:
+            path.symlink_to(target)
+        except (OSError, NotImplementedError):
+            # Windows only allows symlinks with Developer Mode or elevation.
+            path.write_text(wrapper(target))
+            return "installed (as a small file that loads the plugin, as links are not allowed here)"
         return "installed"
     path, events = EVENTS[kind]
     if path.is_symlink():
@@ -176,7 +221,7 @@ def configure(kind, remove=False):
 
 def doctor():
     print(f"Agent Park: {ROOT}\nPython: {sys.executable}")
-    print(f"Process detection: {'available' if Path('/proc/self/stat').exists() else 'unavailable (Linux /proc required)'}")
+    print(f"Process detection: {describe()}")
     for kind, binary in COMMANDS.items():
         installed = find_agent(kind, binary)
         if kind in EVENTS:
@@ -193,7 +238,7 @@ def doctor():
                 integration = f"cannot read configuration: {error}"
         elif kind in LINKS:
             path, target = LINKS[kind]
-            integration = "configured" if path.is_symlink() and path.exists() and path.resolve().name == target.name else "not configured"
+            integration = "configured" if link_state(path, target) else "not configured"
         else:
             integration = "manual setup: see README"
         print(f"{kind}: {'found at ' + installed if installed else 'not found on PATH'}; {integration}")
@@ -246,9 +291,9 @@ def main():
     if args.action == "onboarding-setup":
         # A packaged AppImage is extracted to a temporary directory. Integrations
         # must point at persistent files after the desktop app has exited.
-        root = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local/share") / "agent-park/integration"
+        root = Path(data_dir()) / "integration"
         root.mkdir(parents=True, exist_ok=True)
-        for name in ("agent_park.py", "agent_hook.py", "opencode_plugin.js", "pi_extension.ts"):
+        for name in ("agent_park.py", "agent_hook.py", "platform_support.py", "opencode_plugin.js", "pi_extension.ts"):
             source, destination = ROOT / name, root / name
             if source.resolve() != destination.resolve():
                 fd, temporary = tempfile.mkstemp(prefix=".agent-park-", dir=root)

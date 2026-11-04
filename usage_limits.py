@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Usage limits (Claude, MiniMax) for the park's views.
+"""Usage limits (Claude, Codex, MiniMax, Kimi) for the park's views.
 
 Agent Park never talks to a provider and never touches a token or cookie. It
-only reads, read-only, the history database that AI Limit Monitor keeps
-(~/.config/ai-limit-monitor/history.db). Without that app, or without a
-database yet, there is simply nothing to show. Standard library only.
+only reads, read-only, the history database that AI Limit Monitor keeps:
+~/.config/ai-limit-monitor/history.db on Linux, %APPDATA%\\ai-limit-monitor on
+Windows. Without that app, or without a database yet, there is simply nothing
+to show. Standard library only.
 
 Every percentage here is the share of the limit already *used*.
 """
@@ -12,8 +13,11 @@ Every percentage here is the share of the limit already *used*.
 from datetime import datetime
 import json
 import os
+from pathlib import Path
 import sqlite3
 import time
+
+from platform_support import config_base
 
 USAGE_POLL = 30  # seconds between reads; the monitor itself polls about every minute
 STALE_AFTER = 15 * 60  # older samples are shown, but marked as old
@@ -27,8 +31,7 @@ def default_db():
     override = os.environ.get("AGENT_PARK_USAGE_DB")
     if override:
         return override
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "ai-limit-monitor", "history.db")
+    return os.path.join(config_base(), "ai-limit-monitor", "history.db")
 
 
 def parse_reset(value):
@@ -147,7 +150,7 @@ class UsageMonitor:
         if not os.path.exists(self.path):
             return []
         try:
-            db = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True, timeout=1)
+            db = sqlite3.connect(f"{Path(self.path).absolute().as_uri()}?mode=ro", uri=True, timeout=1)
         except sqlite3.Error:
             return []
         limits = []
