@@ -90,5 +90,13 @@ class SetupTests(unittest.TestCase):
                 self.assertTrue(target.exists())
 
 
-if __name__ == '__main__':
+class ProcessNameTests(unittest.TestCase):
+    def test_mcode_is_recognised_under_both_of_its_process_names(self):
+        # Older MCode runs as node with its script path, newer as a process titled minimax-code.
+        self.assertEqual(agent_hook.agent_of("minimax-code", ["minimax-code"]), "mcode")
+        self.assertEqual(agent_hook.agent_of("node", ["node", "/x/@minimax-ai/code/cli.js"]), "mcode")
+        self.assertEqual(agent_hook.agent_of("node", ["node", "server.js"]), "node")
+
+
+if __name__ == "__main__":
     unittest.main()

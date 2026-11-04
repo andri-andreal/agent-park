@@ -29,7 +29,7 @@ STATE_DIR = os.path.join(
 # Codex's app-server and OpenCode's `serve` run every window's hooks.
 HELPER_ARGS = ("--chrome-native-host", "app-server", "serve")
 # Extra process names an agent runs under -> the agent they belong to.
-AGENT_PROCESSES = {"kiro-cli-chat": "kiro-cli"}
+AGENT_PROCESSES = {"kiro-cli-chat": "kiro-cli", "minimax-code": "mcode"}
 # Agents that run as a plain `node` process -> part of their script's path.
 NODE_AGENTS = {"/@minimax-ai/code/": "mcode"}
 # Hook event -> what the cat should do. Missing events are ignored.
