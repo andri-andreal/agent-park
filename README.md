@@ -62,6 +62,17 @@ folder rule comes from third-party reports, not its own docs; Pi's `~/.pi/agent/
 is assumed to sit under the user profile. Still unknown: how the terminal park looks in
 Windows Terminal, and whether the Windows CI job passes (it is not required until it has).
 
+**Checking it on Windows.** Install Python 3, then `pip install psutil windows-curses`, and from
+the checkout run:
+
+1. `python agent_park.py doctor` should say `Process detection: available (psutil ...)`.
+2. `python park_state.py --once` should print one JSON line whose `agents` lists any
+   running agent (start one first) and whose `system` is not `null`.
+3. `python -m unittest` runs the whole suite; failures are the thing to report.
+4. `python agent_park.py setup claude`, start Claude Code, send a prompt, and look in
+   `%LOCALAPPDATA%\agent-park` for a `<pid>.json` file: that proves the hook ran.
+5. `python screensaver.py` in Windows Terminal shows the terminal park.
+
 ## Usage limits
 
 A **limits** box in the top-right, left of the system box (in the corner when the
