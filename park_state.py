@@ -16,6 +16,7 @@ import time
 
 from screensaver import (AGENT_POLL, AGENTS, AgentMonitor, ProcessWatcher, RouterMonitor,
                          SystemMonitor, short_model)
+from usage_limits import UsageMonitor
 
 
 def xterm_hex(index):
@@ -34,11 +35,12 @@ def xterm_hex(index):
 
 
 class State:
-    def __init__(self, proc="/proc", agents=None, system=None, watcher=None, routers=None):
+    def __init__(self, proc="/proc", agents=None, system=None, watcher=None, routers=None, usage=None):
         self.agents = agents or AgentMonitor(proc)
         self.system = system or SystemMonitor(proc)
         self.watcher = watcher or ProcessWatcher(proc)
         self.routers = routers or RouterMonitor(proc)
+        self.usage = usage or UsageMonitor()
         self.names = {}  # session key -> name, kept while the session lives
         self.started = None  # first poll time, for an uptime the view can show
         self.monsters_seen = 0  # heavy processes announced so far
@@ -88,7 +90,8 @@ class State:
             "monsters_seen": self.monsters_seen,
         }
         return {"time": now, "agents": agents, "system": system, "monsters": monsters,
-                "routers": [asdict(router) for router in self.routers.poll()], "stats": stats}
+                "routers": [asdict(router) for router in self.routers.poll()], "stats": stats,
+                "usage": self.usage.poll()}
 
 
 def main(argv=sys.argv[1:]):

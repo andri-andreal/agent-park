@@ -21,6 +21,7 @@
       "../../park_state.py": "backend/park_state.py",
       "../../screensaver.py": "backend/screensaver.py",
       "../../agent_hook.py": "backend/agent_hook.py",
+      "../../usage_limits.py": "backend/usage_limits.py",
       "../../agent_park.py": "backend/agent_park.py",
       "../../opencode_plugin.js": "backend/opencode_plugin.js",
       "../../pi_extension.ts": "backend/pi_extension.ts"

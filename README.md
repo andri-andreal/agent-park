@@ -26,6 +26,23 @@ Moving the checkout or changing Python paths requires removing the old entries
 first. `doctor` checks configuration, not whether an agent has delivered an
 event; it does not change your settings.
 
+## Usage limits
+
+A **limits** box in the top-right, left of the system box (in the corner when the
+system box is hidden), shows how much of your Claude, Codex, MiniMax and Kimi
+limits is already used: a bar per window (`5h`, `7d`, ...), the percentage, and
+the time until it resets. A small cat per provider worries as the limit fills;
+bars turn yellow from 70% and pulse red from 90%. The 3D app has the same panel.
+`old 15m` marks a sample older than 15 minutes. When the terminal is too short,
+only the providers that fit are shown, followed by `+N more`.
+
+Kimi only records its 5h window, and MiniMax its worst model's interval window.
+The numbers are read, read-only, from the history database of
+[AI Limit Monitor](https://github.com/andri-andreal/ai-limit-monitor)
+(`~/.config/ai-limit-monitor/history.db`, or the path in `AGENT_PARK_USAGE_DB`),
+so that app must be running to keep them fresh. Agent Park never contacts a
+provider and never reads a token or cookie. Without the database, nothing is shown.
+
 The AI agents you are running (Claude Code, Codex, OpenCode, Kiro, Pi, Kimi, MCode, ...)
 live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and

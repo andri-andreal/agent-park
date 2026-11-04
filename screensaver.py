@@ -13,6 +13,7 @@ import time
 from urllib.parse import urlsplit
 
 from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of
+from usage_limits import UsageMonitor, mood_face, until
 
 
 # Artwork faces left; each animal is mirrored when walking right.
@@ -143,6 +144,8 @@ ROUTER = "ccx-router"  # local proxy started by ccx for OpenAI-compatible profil
 ROUTER_WIDTH = 28
 ROUTER_SHOWN = 3  # more routers than this collapse into "+N more"
 STATS_WIDTH = 22  # the park-stats box in the top-left when no router is shown
+LIMITS_WIDTH = 32  # the usage-limits box, left of the system box
+SPEECH_ROOM = 25  # columns the watch cat and its speech take left of the system box
 MODEL_WIDTH = 18  # longer model names are cut in labels
 KITTENS_PER_CAT = 4  # more subagents than this would bury their parent
 SUBAGENT_STALE = 1800.0  # a subagent whose stop event never came
@@ -1406,6 +1409,78 @@ def render_stats(screen, world, styles, crowded):
              accent if name == "wins" and world.victories else curses.A_DIM)
 
 
+def render_limits(screen, world, styles, system_shown, usage, left_used):
+    """Usage limits on the right: per provider a cat that worries as the limit fills, and
+    per window a coloured bar, the share already used and the time until it resets.
+    Green is calm, yellow is busy, red (and pulsing) is nearly out. It stays during raids.
+
+    The box sits left of the system box and its watch cat, or in the corner without them.
+    `left_used` is the width of the box in the top-left, which it must not run into.
+    """
+    height, width = screen.getmaxyx()
+    if not usage or height < 20:
+        return
+    # Row 1 is the notice line; during a raid row 2 is the banner, so the box steps down.
+    top, inner = (3 if world.raid else 2), LIMITS_WIDTH - 2
+    right = width - SYSTEM_WIDTH - 1 - SPEECH_ROOM if system_shown else width - 1
+    left = right - LIMITS_WIDTH
+    if left < left_used + 3:
+        return
+    room = inner - 1  # text starts two columns in and stops before the right border
+    now = time.time()
+    pulse = int(now * 2) % 2  # nearly-full bars blink between bold and dim
+    groups = []  # per provider, its lines inside the box: [[(text, attr), ...], ...]
+    for limit in usage:
+        worst = max(window["pct"] for window in limit["windows"])
+        head = f"{limit['label']} {mood_face(worst)}"
+        rows = [[(head, styles.get(limit["provider"], curses.A_BOLD))]]
+        if limit["stale"]:
+            old = f"old {duration(now - limit['updated_at'])}"
+            rows[0].append((" " * max(1, room - len(head) - len(old)) + old, curses.A_DIM))
+        for window in limit["windows"]:
+            pct = max(0, min(100, window["pct"]))
+            filled = round(pct / 12.5)
+            if pct >= 90:
+                shade = styles.get("enemy", curses.A_BOLD) | (curses.A_BOLD if pulse else curses.A_DIM)
+            elif pct >= 70:
+                shade = styles.get("busy", curses.A_BOLD)
+            else:
+                shade = styles.get("calm", curses.A_DIM)
+            reset = until(window["resets_at"], now)
+            line = f" {window['name']:<8} {'#' * filled}{'-' * (8 - filled)} {round(pct):>3}%"
+            gap = " " * max(1, room - len(line) - len(reset)) + reset if reset else ""
+            rows.append([(f" {window['name']:<8} ", curses.A_DIM), ("#" * filled, shade),
+                         ("-" * (8 - filled), curses.A_DIM), (f" {round(pct):>3}%", shade | curses.A_BOLD),
+                         (gap, curses.A_DIM)])
+        groups.append(rows)
+    space = height - 2 - top - 2  # lines left for the box's contents above the footer
+    if world.raid and right > width - 26:
+        # The monster stands in this corner: keep the box above it.
+        monster_top = world.ground_top + max(0, height - 6 - world.ground_top) // 2 - 1
+        space = min(space, monster_top - top - 2)
+    shown, used = 0, 0
+    for index, rows in enumerate(groups):
+        # Keep a line free for "+N more" unless this provider is the last one.
+        if used + len(rows) + (index < len(groups) - 1) > space:
+            break
+        shown, used = index + 1, used + len(rows)
+    if not shown:
+        return
+    rows = [row for group in groups[:shown] for row in group]
+    if shown < len(groups):
+        rows.append([(f"+{len(groups) - shown} more", curses.A_DIM)])
+    title = "+- limits "
+    draw(screen, top, left, title + "-" * (LIMITS_WIDTH - 1 - len(title)) + "+", curses.A_DIM)
+    for row, parts in enumerate(rows):
+        draw(screen, top + 1 + row, left, "|" + " " * inner + "|", curses.A_DIM)
+        x = left + 2
+        for text, attr in parts:
+            text = text[:max(0, left + 2 + room - x)]
+            draw(screen, top + 1 + row, x, text, attr)
+            x += len(text)
+    draw(screen, top + 1 + len(rows), left, "+" + "-" * inner + "+", curses.A_DIM)
+
+
 def render_office(screen, world, styles):
     """Fence off the AI office and show at a glance who is working."""
     left = world.office
@@ -1433,7 +1508,7 @@ def render_office(screen, world, styles):
          styles.get("claude", curses.A_BOLD) if busy else curses.A_DIM)
 
 
-def render(screen, world, speed, paused, styles, stars, system=None, routers=()):
+def render(screen, world, speed, paused, styles, stars, system=None, routers=(), usage=()):
     height, width = screen.getmaxyx()
     if world.raid:
         mode = "location held"
@@ -1515,6 +1590,8 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=())
     if world.raid:
         render_raid(screen, world, styles)
     render_system(screen, system, world.elapsed, styles)
+    system_shown = system is not None and system.cpu is not None and width >= 64
+    render_limits(screen, world, styles, system_shown, usage, ROUTER_WIDTH if routers else STATS_WIDTH)
     render_routers(screen, world, routers, styles, system is not None)
     if not routers:  # the stats box shares the top-left corner with routers
         render_stats(screen, world, styles, system is not None)
@@ -1549,6 +1626,11 @@ def main(screen, wild=False):
         if curses.COLOR_PAIRS > 6:
             curses.init_pair(6, curses.COLOR_RED, background)
             styles["enemy"] = curses.color_pair(6) | curses.A_BOLD
+        if curses.COLOR_PAIRS > 8 + len(AGENTS):
+            curses.init_pair(7 + len(AGENTS), curses.COLOR_GREEN, background)
+            curses.init_pair(8 + len(AGENTS), curses.COLOR_YELLOW, background)
+            styles["calm"] = curses.color_pair(7 + len(AGENTS))
+            styles["busy"] = curses.color_pair(8 + len(AGENTS))
         if curses.COLOR_PAIRS > 6 + len(AGENTS):
             # Each agent's own shade when 256 colours exist.
             rich = curses.COLORS >= 256
@@ -1563,6 +1645,7 @@ def main(screen, wild=False):
     monitor, watcher, next_poll = AgentMonitor(), ProcessWatcher(), 0.0
     system, show_system, mood = SystemMonitor(), True, "calm"
     router_monitor, routers = RouterMonitor(), []
+    usage_monitor = UsageMonitor()
     last_time = time.monotonic()
     while True:
         now = time.monotonic()
@@ -1608,7 +1691,7 @@ def main(screen, wild=False):
                     next_poll = now + AGENT_POLL
                 world.update(dt, speed)
             render(screen, world, speed, paused, styles, stars, system if show_system else None,
-                   routers)
+                   routers, usage_monitor.poll())
         screen.refresh()
         curses.napms(40)
 

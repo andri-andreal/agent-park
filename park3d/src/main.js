@@ -362,6 +362,7 @@ let lastState = 0
 const message = document.getElementById("message")
 const clockLabel = document.getElementById("clock")
 const statsLabel = document.getElementById("stats")
+const limitsPanel = document.getElementById("limits")
 const setupDialog = document.getElementById("setup-dialog")
 const setupAgents = document.getElementById("setup-agents")
 const setupResult = document.getElementById("setup-result")
@@ -526,6 +527,54 @@ function apply(state) {
     statsLabel.textContent =
       `up ${duration(s.uptime)} · agents ${s.working}/${s.agents} · subagents ${s.subagents} · monsters ${s.monsters_seen}`
   }
+  showLimits(state.usage || [])
+}
+
+// How much of each limit is already used, per provider and window (5h, 7d, ...).
+// A sample the backend marks stale stays visible but dimmed, with its age.
+function timeLeft(seconds) {
+  if (seconds <= 0) return "now"
+  const minutes = Math.max(1, Math.floor(seconds / 60))
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`
+  return `${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h`
+}
+
+// Same thresholds as usage_limits.mood_face, so both views show the same mood.
+const moodFace = (pct) => (pct < 50 ? "(=^.^=)" : pct < 80 ? "(=o.o=)" : pct < 95 ? "(=O.O=)" : "(=x.x=)")
+
+function showLimits(limits) {
+  limitsPanel.hidden = limits.length === 0
+  const now = Date.now() / 1000
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+  limitsPanel.replaceChildren(element("h3", "", "Limits used"), ...limits.map((limit) => {
+    const box = element("div", limit.stale ? "provider old" : "provider")
+    const worst = Math.max(...limit.windows.map((window) => window.pct))
+    const name = element("div", "name")
+    name.append(element("span", "", limit.label), element("span", worst >= 95 ? "face dead" : "face", moodFace(worst)))
+    box.append(name)
+    if (limit.stale) box.append(element("small", "age", `old data · ${timeLeft(now - limit.updated_at)} ago`))
+    for (const window of limit.windows) {
+      const pct = Math.max(0, Math.min(100, window.pct))
+      const row = element("div", "row")
+      const bar = element("div", "bar")
+      bar.append(element("i", pct >= 90 ? "hot" : pct >= 70 ? "warm" : ""))
+      bar.firstChild.style.width = `${pct}%`
+      row.append(element("span", "", window.name), bar, element("b", "", `${Math.round(pct)}%`))
+      if (window.resets_at) {
+        const reset = element("div", "reset", `resets in ${timeLeft(window.resets_at - now)}`)
+        reset.title = new Date(window.resets_at * 1000).toLocaleString()
+        row.append(reset)
+      }
+      box.append(row)
+    }
+    return box
+  }))
 }
 
 const systemPanel = document.getElementById("system")
@@ -584,6 +633,17 @@ function demo() {
       })),
       system: { cpu, ram: [11e9, 32e9], swap: [0, 0], load: cpu * 8, history: history.slice(-24), mood: cpu > 0.6 ? "busy" : "calm" },
       monsters: [],
+      usage: [
+        { provider: "claude", label: "claude", stale: false, updated_at: Date.now() / 1000, windows: [
+          { name: "5h", pct: 40 + 30 * Math.sin(tick / 20), resets_at: Date.now() / 1000 + 4300 },
+          { name: "7d", pct: 78, resets_at: Date.now() / 1000 + 190000 }] },
+        { provider: "codex", label: "codex", stale: false, updated_at: Date.now() / 1000, windows: [
+          { name: "5h", pct: 5, resets_at: Date.now() / 1000 + 15000 },
+          { name: "7d", pct: 46, resets_at: Date.now() / 1000 + 20000 }] },
+        { provider: "minimax", label: "minimax", stale: true, updated_at: Date.now() / 1000 - 7200,
+          windows: [{ name: "interval", pct: 12, resets_at: null }] },
+        { provider: "kimi", label: "kimi", stale: false, updated_at: Date.now() / 1000, windows: [{ name: "5h", pct: 96, resets_at: null }] },
+      ],
     })
   }
   step()
