@@ -296,17 +296,51 @@ class HookTests(unittest.TestCase):
 
 
 class SetupTests(unittest.TestCase):
-    def test_hook_command_is_quoted_for_windows_and_still_recognised(self):
+    def windows_command(self, executable, on_path):
         with mock.patch.object(agent_park, "is_windows", return_value=True), \
-                mock.patch.object(sys, "executable", r"C:\Program Files\Python312\python.exe"), \
+                mock.patch.object(sys, "executable", executable), \
+                mock.patch("shutil.which", return_value=on_path), \
                 mock.patch.object(agent_park, "ROOT", Path("/opt/agent park")):
-            line = agent_park.command("claude")
-            self.assertEqual(line.count('"'), 4)
-            self.assertNotIn("\\", line)
-            self.assertIn("C:/Program Files/Python312/python.exe", line)
-            hook = {"type": "command", "command": line}
-            self.assertTrue(agent_park.equivalent_hook(hook, "claude"))
-            self.assertFalse(agent_park.equivalent_hook(hook, "codex"))
+            return agent_park.command("claude")
+
+    def test_windows_hook_command_never_starts_with_a_quoted_path(self):
+        # PowerShell treats a leading "quoted path" as an expression; Git Bash and cmd accept either.
+        exe = r"C:\Python312\python.exe"
+        bare = self.windows_command(exe, on_path=exe)  # this is the python on PATH
+        self.assertEqual(bare, 'python "/opt/agent park/agent_hook.py" claude')
+        plain = self.windows_command(exe, on_path=None)  # not on PATH, but no spaces to quote
+        self.assertEqual(plain, 'C:/Python312/python.exe "/opt/agent park/agent_hook.py" claude')
+        spaced = self.windows_command(r"C:\Program Files\Python312\python.exe", on_path=None)
+        self.assertEqual(spaced.count('"'), 4)  # a space leaves no choice but quotes; Git Bash and cmd cope
+        self.assertNotIn("\\", spaced)
+
+    def test_windows_hook_commands_are_recognised_again(self):
+        for executable, on_path in ((r"C:\Python312\python.exe", r"C:\Python312\python.exe"),
+                                    (r"C:\Python312\python.exe", None),
+                                    (r"C:\Program Files\Python312\python.exe", None)):
+            line = self.windows_command(executable, on_path)
+            with mock.patch.object(agent_park, "is_windows", return_value=True), \
+                    mock.patch.object(agent_park, "ROOT", Path("/opt/agent park")):
+                hook = {"type": "command", "command": line}
+                self.assertTrue(agent_park.equivalent_hook(hook, "claude"), line)
+                self.assertFalse(agent_park.equivalent_hook(hook, "codex"), line)
+
+    def test_opencode_config_is_never_split_across_two_folders_on_windows(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            appdata = home / "AppData/Roaming"
+            env = {"APPDATA": str(appdata)}
+            with mock.patch.object(agent_park, "HOME", home), mock.patch.dict(os.environ, env), \
+                    mock.patch.object(agent_park, "is_windows", return_value=True):
+                self.assertEqual(agent_park.opencode_plugin_path(), home / ".config/opencode/plugins/agent-park.js")
+                (appdata / "opencode").mkdir(parents=True)  # the user's real config lives here
+                self.assertEqual(agent_park.opencode_plugin_path(), appdata / "opencode/plugins/agent-park.js")
+                (home / ".config/opencode").mkdir(parents=True)  # OpenCode prefers this when it exists
+                self.assertEqual(agent_park.opencode_plugin_path(), home / ".config/opencode/plugins/agent-park.js")
+            with mock.patch.object(agent_park, "HOME", home), mock.patch.dict(os.environ, env), \
+                    mock.patch.object(agent_park, "is_windows", return_value=False):
+                (home / ".config/opencode").rmdir()
+                self.assertEqual(agent_park.opencode_plugin_path(), home / ".config/opencode/plugins/agent-park.js")
 
     def test_hook_command_on_linux_is_unchanged(self):
         with mock.patch.object(agent_park, "is_windows", return_value=False), \

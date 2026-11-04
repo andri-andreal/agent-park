@@ -20,7 +20,19 @@ EVENTS = {
     "codex": (HOME / ".codex/hooks.json", "UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop PermissionRequest Stop Interrupt SessionStart SessionEnd".split()),
     "mcode": (HOME / ".minimax/hooks.json", "SessionStart SessionEnd UserPromptSubmit PreToolUse PermissionRequest PostToolUse SubagentStart SubagentStop Stop".split()),
 }
-LINKS = {"opencode": (HOME / ".config/opencode/plugins/agent-park.js", ROOT / "opencode_plugin.js"),
+def opencode_plugin_path():
+    """Where OpenCode loads global plugins from. On Windows it uses ~/.config/opencode when that
+    exists and %APPDATA%\\opencode otherwise, so never create the first next to an existing second:
+    OpenCode would switch to it and lose sight of the user's real configuration."""
+    xdg = HOME / ".config/opencode"
+    if is_windows() and not xdg.exists():
+        appdata = Path(os.environ.get("APPDATA") or HOME / "AppData/Roaming") / "opencode"
+        if appdata.exists():
+            return appdata / "plugins/agent-park.js"
+    return xdg / "plugins/agent-park.js"
+
+
+LINKS = {"opencode": (opencode_plugin_path(), ROOT / "opencode_plugin.js"),
          "pi": (HOME / ".pi/agent/extensions/agent-park.ts", ROOT / "pi_extension.ts")}
 COMMANDS = {"claude": "claude", "codex": "codex", "mcode": "mcode", "opencode": "opencode", "pi": "pi", "kiro": "kiro-cli", "kimi": "kimi"}
 BIN_DIRS = {"opencode": HOME / ".opencode/bin", "mcode": HOME / ".minimax-code/bin", "kimi": HOME / ".kimi-code/bin"}
@@ -44,13 +56,24 @@ def quote(text):
     return f'"{text}"' if is_windows() else shlex.quote(text)
 
 
+def windows_interpreter():
+    """The interpreter as a hook command should name it. Claude Code runs hooks through Git Bash,
+    or PowerShell without it; Codex through cmd or PowerShell. PowerShell reads a command that
+    starts with a quoted path as an expression and refuses it, so use a bare name (when it is
+    this very Python) or a path without spaces, and quote only the script, which all three accept."""
+    python = PureWindowsPath(sys.executable).as_posix()
+    found = shutil.which("python")
+    if found and PureWindowsPath(found).as_posix().lower() == python.lower():
+        return "python"
+    return python if " " not in python else f'"{python}"'
+
+
 def command(kind):
-    """The hook command line. On Windows: double quotes and forward slashes, which cmd.exe,
-    Git Bash and Python all read, and which shlex.split below parses back unharmed."""
-    python, hook = sys.executable, str(ROOT / "agent_hook.py")
+    """The hook command line. Windows: see windows_interpreter, and a double-quoted script with
+    forward slashes, which shlex.split below parses back unharmed."""
     if is_windows():
-        python, hook = PureWindowsPath(python).as_posix(), PureWindowsPath(hook).as_posix()
-    return f"{quote(python)} {quote(hook)} {kind}"
+        return f"{windows_interpreter()} {quote(PureWindowsPath(ROOT / 'agent_hook.py').as_posix())} {kind}"
+    return f"{quote(sys.executable)} {quote(str(ROOT / 'agent_hook.py'))} {kind}"
 
 
 def split_command(text):

@@ -40,16 +40,27 @@ processes are read (`/proc` or `psutil`). `python3 agent_park.py doctor` (`pytho
 on Windows) says which is in use and what is missing. Set `AGENT_PARK_PYTHON` to
 make the 3D app and the OpenCode and Pi plugins use a specific interpreter.
 
-On Windows the hook command is written with double quotes and forward slashes, and
-the OpenCode and Pi plugins are installed as a small file that loads the real
-plugin, because symlinks need Developer Mode or elevation there.
+On Windows the hook command is `python "C:/.../agent_hook.py" <agent>`: the script path
+is double-quoted with forward slashes, and the interpreter is not quoted (a bare `python`
+when that is the Python running setup, else its path). Claude Code runs hooks through
+Git Bash, or PowerShell without it, and Codex through cmd or PowerShell; PowerShell
+refuses a command that starts with a quoted path, the other shells accept both. The
+OpenCode and Pi plugins are installed as a small file that loads the real plugin, because
+symlinks need Developer Mode or elevation there. OpenCode reads `~/.config/opencode` on
+Windows when that folder exists and `%APPDATA%\opencode` otherwise; setup follows it and
+never creates the first next to an existing second.
 
 **Status of Windows and macOS.** They have not been run on a real machine. The
 Python side is tested against a simulated Windows `psutil`, and against `/proc` on
 live Linux to show both give the same answers; the Rust side compiles for the
-Windows target. What only a real run can settle: how each agent launches hook
-commands (cmd, PowerShell or Git Bash), where OpenCode and Pi look for plugins,
-and how the terminal park looks in Windows Terminal.
+Windows target. How the agents run hooks and where they load plugins comes from their
+documentation and reports, not from a Windows run:
+[Claude Code hooks](https://code.claude.com/docs/en/hooks) name Git Bash and PowerShell;
+Codex's [hooks](https://developers.openai.com/codex/hooks) offer a `commandWindows` override
+and have open Windows reports (one says no hook command runs in Codex Desktop); the OpenCode
+folder rule comes from third-party reports, not its own docs; Pi's `~/.pi/agent/extensions`
+is assumed to sit under the user profile. Still unknown: how the terminal park looks in
+Windows Terminal, and whether the Windows CI job passes (it is not required until it has).
 
 ## Usage limits
 
