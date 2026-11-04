@@ -26,6 +26,31 @@ Moving the checkout or changing Python paths requires removing the old entries
 first. `doctor` checks configuration, not whether an agent has delivered an
 event; it does not change your settings.
 
+## Platforms
+
+| | Linux | Windows | macOS |
+|---|---|---|---|
+| Process detection | `/proc`, nothing to install | `pip install psutil` | `pip install psutil` |
+| Terminal park | built in | `pip install windows-curses` | built in |
+| 3D app | DEB, AppImage | per-user `.exe` installer | not packaged |
+| ccx router box | yes | no | no |
+
+All the OS differences live in `platform_support.py`: where files go and how
+processes are read (`/proc` or `psutil`). `python3 agent_park.py doctor` (`python`
+on Windows) says which is in use and what is missing. Set `AGENT_PARK_PYTHON` to
+make the 3D app and the OpenCode and Pi plugins use a specific interpreter.
+
+On Windows the hook command is written with double quotes and forward slashes, and
+the OpenCode and Pi plugins are installed as a small file that loads the real
+plugin, because symlinks need Developer Mode or elevation there.
+
+**Status of Windows and macOS.** They have not been run on a real machine. The
+Python side is tested against a simulated Windows `psutil`, and against `/proc` on
+live Linux to show both give the same answers; the Rust side compiles for the
+Windows target. What only a real run can settle: how each agent launches hook
+commands (cmd, PowerShell or Git Bash), where OpenCode and Pi look for plugins,
+and how the terminal park looks in Windows Terminal.
+
 ## Usage limits
 
 A **limits** box in the top-right, left of the system box (in the corner when the
@@ -64,7 +89,8 @@ directions.
 
 New animals occasionally enter from the edge of the screen; some just pass
 through and leave again. The number of animals adjusts to the screen size
-(up to eight). Runs on Linux/macOS with Python 3, no extra packages.
+(up to eight). Runs with Python 3 and no extra packages on Linux; Windows and macOS
+need `psutil` (see **Platforms**).
 
 There are four places that switch automatically every 35 seconds:
 
@@ -101,7 +127,8 @@ containing CPU, RAM, swap (if any), load average, and a graph of the last
 24 seconds of CPU. Next to it sits a guard cat. If CPU goes above 60%, the cat
 starts to worry (`CPU is climbing...`). If CPU goes above 85% or RAM above 90%,
 the cat panics, trembles, and shouts `WATCH OUT! CPU 93%!`. The panel only
-appears on Linux in terminals at least 64x20.
+appears in terminals at least 64x20, and only where Agent Park can read the machine
+(see **Platforms**).
 
 The top row shows `AGENT PARK / <PLACE> / <mode>` on the left and, when the
 terminal is wide enough, a live clock (`HH:MM:SS`) centred between it and the
@@ -129,7 +156,8 @@ the fights). Ordinary animals do not enter the HQ. The HQ only appears if there
 are AI cats and the terminal is at least 72 columns wide; on narrow screens the
 cats work across the whole park. Once a session is closed, its cat says goodbye
 and walks off the screen. AI cats do not join the fights, but they do join in
-fighting the monsters. This feature only runs on Linux.
+fighting the monsters. This needs process information: built in on Linux, through
+`psutil` elsewhere (see **Platforms**).
 
 Without extra configuration, the work status is only an estimate from CPU. For
 accuracy, install a hook that calls `agent_hook.py`. This script writes the
@@ -205,7 +233,8 @@ appears in the top-left. It contains the profile name, local port, upstream
 host (without path or credentials), uptime, and the Claude cat using it. The
 arrow `>-->` moves when the router or its cat is working; otherwise it shows
 `idle` and the number of open connections. At most three routers are shown, and
-the rest are summarized as `+N more`. A router never becomes a monster.
+the rest are summarized as `+N more`. A router never becomes a monster. The
+router box is Linux-only, like ccx itself.
 
 OpenCode has no command-based hooks, so its status is sent via the
 `opencode_plugin.js` plugin. This plugin turns OpenCode session events (busy,
@@ -386,23 +415,25 @@ browser. On Wayland, the app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` so that
 WebGL is not black. The location of the status script can be changed via
 `PARK_STATE`.
 
-Linux release bundles include the Python backend scripts; Python 3 and a Linux
-desktop with WebKitGTK remain runtime requirements. The GitHub Actions Linux
-packages workflow can be run manually or by pushing a `v*` tag and publishes
-DEB/AppImage files as workflow artifacts. It does not publish a GitHub release.
-The CI workflow runs Python tests, builds the 3D frontend, and checks the Rust
-backend.
+Release bundles include the Python backend scripts; Python 3 remains a runtime
+requirement (a Linux desktop with WebKitGTK on Linux; WebView2, which ships with
+Windows 10 and 11, on Windows). The GitHub Actions packages workflow can be run
+manually or by pushing a `v*` tag and publishes the DEB and AppImage files and a
+per-user Windows installer (NSIS `.exe`) as workflow artifacts. It does not publish
+a GitHub release. The CI workflow runs Python tests, builds the 3D frontend, and
+checks the Rust backend, on Linux and, not yet required to pass, on Windows.
 
 ### Local data and limitations
 
 Hooks write status, session identifiers, timestamps, and model names to
-`$XDG_RUNTIME_DIR/agent-park` (or `~/.cache/agent-park`). They may read the tail
+`$XDG_RUNTIME_DIR/agent-park` (or `~/.cache/agent-park`; `%LOCALAPPDATA%\agent-park`
+on Windows). They may read the tail
 of local transcripts or the OpenCode database to determine the model; prompt
 and response text is not copied into state files. Session-end events and the
 monitor clean up state files, but abrupt shutdowns can leave files until a later
 monitor run. Remove the directory manually when Agent Park is stopped if needed.
-Agent detection and CPU estimates currently depend on Linux `/proc`; macOS can
-run the terminal animation but does not have equivalent session detection.
+Agent detection and CPU estimates read Linux `/proc`, or `psutil` on Windows and
+macOS (see **Platforms**). Without either, the animation still runs but finds no sessions.
 
 Test the interaction simulation, passing animals, and resize with:
 

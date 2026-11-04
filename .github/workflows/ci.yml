@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # psutil is only needed off Linux, but with it the tests also compare /proc against psutil.
+      - run: python -m pip install psutil
       - run: python -m unittest -v
       - uses: pnpm/action-setup@v4
         with:
@@ -30,3 +32,28 @@ jobs:
         working-directory: park3d
       - run: cargo check --locked --manifest-path park3d/src-tauri/Cargo.toml
       - run: cargo fmt --manifest-path park3d/src-tauri/Cargo.toml -- --check
+  windows:
+    runs-on: windows-latest
+    # Windows support has not had a green run here yet; make this required once it has.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install psutil
+      - run: python -m unittest -v
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: park3d/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+        working-directory: park3d
+      - run: pnpm build
+        working-directory: park3d
+      - run: cargo check --locked --manifest-path park3d/src-tauri/Cargo.toml

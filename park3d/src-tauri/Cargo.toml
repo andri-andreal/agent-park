@@ -9,3 +9,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+
+# Linux notifies through notify-send; Windows and macOS through this plugin.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tauri-plugin-notification = "2"
