@@ -34,8 +34,6 @@ jobs:
       - run: cargo fmt --manifest-path park3d/src-tauri/Cargo.toml -- --check
   windows:
     runs-on: windows-latest
-    # Windows support has not had a green run here yet; make this required once it has.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
