@@ -131,6 +131,11 @@ activity to gather, block the attack with shields, then strike back together.
 The monster always loses and flees; the animals celebrate their victory with
 jumps and confetti before returning to their activities. No animal gets hurt.
 
+An agent that is working stays out of it: its animal (and any helper kittens)
+keeps typing at its desk while the rest of the park fights, and the banner says
+how many are "still working". If every animal is working, no raid starts. An
+agent that finishes mid-raid joins the fight; one that starts working leaves it.
+
 Monsters do not appear at random. A monster is a process started after the
 screensaver was opened (including a shell that `exec`s another program) that
 then uses on average at least 90% of one CPU core for 3 seconds or at least

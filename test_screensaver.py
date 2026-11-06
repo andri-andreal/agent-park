@@ -341,6 +341,72 @@ class AgentTests(unittest.TestCase):
         world.sync_agents({7: ("claude", "idle"), 8: ("codex", "work")})
         self.assertTrue(any(a.agent == 8 for a in world.animals))
 
+    def test_working_agents_stay_at_their_desks_during_a_raid(self):
+        world = World(100, 30, seed=6)
+        world.sync_agents({7: ("claude", "work"), 8: ("codex", "idle")})
+        land(world)
+        world.sync_agents({7: ("claude", "work"), 8: ("codex", "idle")}, {7: [("k1", "Explore")]})
+        land(world)
+        worker = next(a for a in world.animals if a.agent == 7 and not a.sub)
+        kitten = next(a for a in world.animals if a.sub)
+        idle = next(a for a in world.animals if a.agent == 8)
+        for _ in range(100):
+            world.update(0.1, 8)
+        self.assertTrue(worker.seated)
+        desk = (worker.x, worker.y)
+        self.assertTrue(world.threat("cargo", "CPU 180%"))
+        self.assertNotIn(worker, world.fighters())
+        self.assertNotIn(kitten, world.fighters())
+        self.assertIn(idle, world.fighters())
+        for _ in range(300):
+            world.update(0.05, 8)
+            if world.raid:
+                self.assertEqual(worker.state, "work")  # never rallies, blocks or charges
+                self.assertEqual((worker.x, worker.y), desk)
+                self.assertEqual(kitten.state, "follow")
+                self.assertIn(idle.state, ("rally", "guard", "attack", "cheer"))
+        self.assertIsNone(world.raid)
+        self.assertEqual(worker.state, "work")
+        self.assertTrue(worker.seated)
+
+    def test_a_raid_does_not_start_when_every_agent_is_working(self):
+        world = World(100, 30, seed=6)
+        world.sync_agents({7: ("claude", "work")})
+        land(world)
+        world.animals = [a for a in world.animals if a.agent]  # no wild animals to fight either
+        self.assertFalse(world.threat("cargo", "CPU 180%"))
+        self.assertIsNone(world.raid)
+        self.assertEqual(world.raid_cooldown, 0)  # it can still come once somebody is free
+        world.sync_agents({7: ("claude", "idle")})
+        self.assertTrue(world.threat("cargo", "CPU 180%"))
+
+    def test_an_agent_that_starts_working_leaves_the_fight_and_one_that_finishes_joins(self):
+        world = World(100, 30, seed=6)
+        sessions = {7: ("claude", "idle"), 8: ("codex", "work")}
+        world.sync_agents(sessions)
+        land(world)
+        world.start_raid()
+        claude = next(a for a in world.animals if a.agent == 7)
+        codex = next(a for a in world.animals if a.agent == 8)
+        world.update(4, 8)
+        self.assertEqual((claude.state, codex.state), ("guard", "work"))
+        world.sync_agents({7: ("claude", "work"), 8: ("codex", "idle")})
+        world.update(0.05, 8)
+        self.assertEqual((claude.state, codex.state), ("work", "guard"))
+
+    def test_raid_banner_and_drawing_leave_working_agents_out(self):
+        world = World(100, 30, seed=6)
+        world.sync_agents({7: ("claude", "work"), 8: ("codex", "idle")})
+        land(world)
+        world.animals = [a for a in world.animals if a.agent]
+        world.start_raid()
+        world.raid.age = 6
+        world.update_raid(0)
+        screen = Screen(30, 100)
+        render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
+        text = "\n".join("".join(row) for row in screen.rows)
+        self.assertIn("Team: 1 animals | 1 still working", text)
+
     def test_hook_states_override_cpu_guess(self):
         with tempfile.TemporaryDirectory() as root:
             clock = [1000.0]
@@ -793,6 +859,7 @@ class AgentTests(unittest.TestCase):
         screen = Screen(24, 80)
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])
         world.raid = None
+        land(world)
         world.update(0.05, 8)
         screen = Screen(24, 80)
         render(screen, world, 8, False, dict.fromkeys(SPRITES, 0), [])

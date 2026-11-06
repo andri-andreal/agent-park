@@ -812,27 +812,28 @@ class World:
         self.raid = Raid(monster=monster[:15])
         # Even sleeping animals and passing visitors join the same team.
         self.encounters.clear()
-        for animal in self.animals:
+        for animal in self.fighters():  # agents at work are left to it
             animal.state, animal.entry = "rally", 0  # landing can wait, the park can't
         detail = f" ({detail})" if detail else ""
         self.say(f"LOOK OUT! Monster {self.raid.monster}{detail} is coming! All animals, gather!")
 
     def threat(self, monster, detail):
         """A heavy new process showed up. Returns True if the park fights it."""
-        if self.raid or self.raid_cooldown > 0 or not self.animals:
-            return False
+        if self.raid or self.raid_cooldown > 0 or not self.fighters():
+            return False  # nobody free to fight: the agents keep working
         self.start_raid(monster, detail)
         return True
 
-    def formation(self, index):
-        columns = min(len(self.animals), max(1, (self.width - 18) // 14))
-        rows = math.ceil(len(self.animals) / columns)
+    def formation(self, index, count=None):
+        count = len(self.animals) if count is None else count
+        columns = min(count, max(1, (self.width - 18) // 14))
+        rows = math.ceil(count / columns)
         x = 1 + (index % columns) * 14
         span = max(0, self.height - 6 - self.ground_top)
         y = self.ground_top + (index // columns) * span / max(1, rows - 1)
         return x, y
 
-    def update_raid(self, dt):
+    def update_raid(self, dt, speed=8):
         raid = self.raid
         previous = raid.phase
         if raid.age < 11 <= raid.age + dt:
@@ -843,8 +844,9 @@ class World:
             for name, _, message in RAID_PHASES:
                 if name == phase:
                     self.say(message)
+        fighters = self.fighters()
         if phase == "selesai":
-            for animal in self.animals:
+            for animal in fighters:
                 animal.state = "pass" if animal.visitor else "walk"
                 animal.vx = (-1 if animal.x < self.width / 2 else 1)
                 animal.cooldown = 6
@@ -853,8 +855,11 @@ class World:
             self.raid_cooldown = RAID_COOLDOWN
             self.say("All clear again. Time to keep strolling!")
             return
-        for index, animal in enumerate(self.animals):
-            tx, ty = self.formation(index)
+        for animal in self.animals:
+            if animal not in fighters:
+                self.keep_working(animal, dt, speed)
+        for index, animal in enumerate(fighters):
+            tx, ty = self.formation(index, len(fighters))
             animal.x += (tx - animal.x) * min(1, dt * 5)
             animal.y += (ty - animal.y) * min(1, dt * 5)
             # Visitors also stay on screen until the battle is over.
@@ -866,11 +871,59 @@ class World:
                 "lawan": "attack", "menang": "cheer",
             }[phase]
 
+    def work(self, animal, dt, speed):
+        """A working agent runs to its own computer and types, or zooms about with no desk free."""
+        animal.state = "work"
+        desk = self.desk_for(animal)
+        if desk:
+            (tx, ty), step = desk, speed * WORK_SPEED * dt
+            dx, dy = tx - animal.x, ty - animal.y
+            distance = math.hypot(dx, dy * 2)  # rows are about twice as tall as columns
+            animal.seated = distance <= step
+            if animal.seated:
+                animal.x, animal.y, animal.vx = tx, ty, 1
+            else:
+                animal.x += dx / distance * step
+                animal.y += dy / distance * step
+                if abs(dx) > 0.5:
+                    animal.vx = 1 if dx > 0 else -1
+            return
+        if animal.x < self.lane(animal)[0]:
+            animal.vx, animal.vy = 1, 0
+        elif animal.timer <= 0:
+            animal.vx = self.rng.choice((-1, 1))
+            animal.vy = self.rng.uniform(-0.6, 0.6)
+            animal.timer = self.rng.uniform(0.6, 2.0)
+        self.move(animal, dt, speed * WORK_SPEED)
+
+    def working(self, animal):
+        """An agent hard at work (a helper kitten works as long as its cat does)."""
+        if not animal.agent:
+            return False
+        if animal.sub:
+            leader = next((a for a in self.animals if a.agent == animal.agent and not a.sub), None)
+            return bool(leader and leader.status == "work")
+        return animal.status == "work"
+
+    def fighters(self):
+        """Whoever joins a raid: everyone except the agents busy working."""
+        return [animal for animal in self.animals if not self.working(animal)]
+
+    def keep_working(self, animal, dt, speed):
+        """A raid is on, but this agent has a job: it carries on at its desk."""
+        if animal.entry > 0:
+            animal.entry = max(0, animal.entry - dt)
+        elif animal.sub:
+            animal.state = "follow"
+            self.follow(animal, dt)
+        else:
+            self.work(animal, dt, speed)
+
     def update(self, dt, speed):
         self.elapsed += dt
         self.notice_timer = max(0, self.notice_timer - dt)
         if self.raid:
-            self.update_raid(dt)
+            self.update_raid(dt, speed)
             return
         self.raid_cooldown = max(0, self.raid_cooldown - dt)
         if self.auto_place:
@@ -897,32 +950,8 @@ class World:
                 continue
             if animal.agent and not animal.sub and animal.status != "work":
                 animal.desk, animal.seated = -1, False
-            desk = self.desk_for(animal) if animal.agent and animal.status == "work" else None
-            if desk:
-                # Run to its own computer, then sit and type.
-                animal.state = "work"
-                (tx, ty), step = desk, speed * WORK_SPEED * dt
-                dx, dy = tx - animal.x, ty - animal.y
-                distance = math.hypot(dx, dy * 2)  # rows are about twice as tall as columns
-                animal.seated = distance <= step
-                if animal.seated:
-                    animal.x, animal.y, animal.vx = tx, ty, 1
-                else:
-                    animal.x += dx / distance * step
-                    animal.y += dy / distance * step
-                    if abs(dx) > 0.5:
-                        animal.vx = 1 if dx > 0 else -1
-                continue
             if animal.agent and animal.status == "work":
-                # No desk free (or no office): zoom around instead.
-                animal.state = "work"
-                if animal.x < self.lane(animal)[0]:
-                    animal.vx, animal.vy = 1, 0
-                elif animal.timer <= 0:
-                    animal.vx = self.rng.choice((-1, 1))
-                    animal.vy = self.rng.uniform(-0.6, 0.6)
-                    animal.timer = self.rng.uniform(0.6, 2.0)
-                self.move(animal, dt, speed * WORK_SPEED)
+                self.work(animal, dt, speed)
                 continue
             if animal.agent and animal.status == "wait":
                 # Asking for approval: step out of the office and jump about.
@@ -1107,9 +1136,10 @@ def render_raid(screen, world, styles):
         draw(screen, monster_y + row, monster_x, line, enemy_style)
     draw(screen, monster_y - 1, monster_x + 5 - len(raid.monster) / 2, raid.monster, enemy_style)
 
-    for index, animal in enumerate(world.animals):
+    team = world.fighters()
+    for index, animal in enumerate(team):
         tip_x, tip_y = animal.x + animal.width + 1, animal.y + 1
-        progress = (raid.age * 1.5 + index / max(1, len(world.animals))) % 1
+        progress = (raid.age * 1.5 + index / max(1, len(team))) % 1
         if phase == "tangkis":
             for row, shield in enumerate((")", "]", ")")):
                 draw(screen, animal.y + row, tip_x, shield, style_of(styles, animal))
@@ -1129,7 +1159,10 @@ def render_raid(screen, world, styles):
         banner = f"WE WON! All {len(world.animals)} animals are safe! Hooray!"
     else:
         label = {"datang": "LOOK OUT!", "tangkis": "BLOCK!", "lawan": "CHARGE!"}[phase]
-        banner = f"{label} Monster {raid.monster}: {raid.health}% | Team: {len(world.animals)} animals"
+        banner = f"{label} Monster {raid.monster}: {raid.health}% | Team: {len(team)} animals"
+        busy = len(world.animals) - len(team)
+        if busy:
+            banner += f" | {busy} still working"
     draw(screen, 2, 0, " " * width)
     draw(screen, 2, 2, banner, curses.A_BOLD)
 
