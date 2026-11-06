@@ -111,7 +111,7 @@ class PathTests(unittest.TestCase):
             self.assertEqual(platform_support.config_base(), "/conf")
             self.assertEqual(platform_support.python_command(), "python3")
         with mock.patch.dict(os.environ, env), mock.patch.object(sys, "platform", "darwin"):
-            self.assertTrue(platform_support.config_base().endswith("Library/Application Support"))
+            self.assertEqual(Path(platform_support.config_base()).parts[-2:], ("Library", "Application Support"))
         with mock.patch.dict(os.environ, {"AGENT_PARK_PYTHON": "py"}):
             self.assertEqual(platform_support.python_command(), "py")
 

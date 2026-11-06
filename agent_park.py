@@ -185,7 +185,7 @@ def configure(kind, remove=False):
     if kind in LINKS:
         path, target = LINKS[kind]
         state = link_state(path, target)
-        if state == "wrapped" or (state == "linked" and path.resolve() == target):
+        if state == "wrapped" or (state == "linked" and path.resolve() == target.resolve()):
             if remove:
                 path.unlink()
             return "removed" if remove else "already installed"
