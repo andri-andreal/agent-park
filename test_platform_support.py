@@ -106,8 +106,8 @@ class PathTests(unittest.TestCase):
             self.assertEqual(platform_support.config_base(), env["APPDATA"])
             self.assertEqual(platform_support.python_command(), "python")
         with mock.patch.dict(os.environ, env), mock.patch.object(sys, "platform", "linux"):
-            self.assertEqual(platform_support.state_dir(), "/run/user/1/agent-park")
-            self.assertEqual(platform_support.data_dir(), "/data/agent-park")
+            self.assertEqual(platform_support.state_dir(), os.path.join("/run/user/1", "agent-park"))
+            self.assertEqual(platform_support.data_dir(), os.path.join("/data", "agent-park"))
             self.assertEqual(platform_support.config_base(), "/conf")
             self.assertEqual(platform_support.python_command(), "python3")
         with mock.patch.dict(os.environ, env), mock.patch.object(sys, "platform", "darwin"):
@@ -320,7 +320,7 @@ class SetupTests(unittest.TestCase):
                                     (r"C:\Program Files\Python312\python.exe", None)):
             line = self.windows_command(executable, on_path)
             with mock.patch.object(agent_park, "is_windows", return_value=True), \
-                    mock.patch.object(agent_park, "ROOT", Path("/opt/agent park")):
+                    mock.patch.object(agent_park, "ROOT", Path("/opt/agent park").resolve()):
                 hook = {"type": "command", "command": line}
                 self.assertTrue(agent_park.equivalent_hook(hook, "claude"), line)
                 self.assertFalse(agent_park.equivalent_hook(hook, "codex"), line)
@@ -342,6 +342,7 @@ class SetupTests(unittest.TestCase):
                 (home / ".config/opencode").rmdir()
                 self.assertEqual(agent_park.opencode_plugin_path(), home / ".config/opencode/plugins/agent-park.js")
 
+    @unittest.skipIf(sys.platform == "win32", "pretends to be Linux; pathlib on a Windows host cannot")
     def test_hook_command_on_linux_is_unchanged(self):
         with mock.patch.object(agent_park, "is_windows", return_value=False), \
                 mock.patch.object(sys, "executable", "/usr/bin/python3"), \

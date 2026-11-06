@@ -4,6 +4,7 @@ import io
 from contextlib import closing
 import json
 import os
+from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
@@ -546,7 +547,7 @@ class AgentTests(unittest.TestCase):
             console.log(JSON.stringify(Object.keys(handlers).sort()))
         """
         extension = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi_extension.ts")
-        result = subprocess.run(["node", "--input-type=module", "-e", script, extension],
+        result = subprocess.run(["node", "--input-type=module", "-e", script, Path(extension).as_uri()],
                                 capture_output=True, text=True)
         if result.returncode and "Unknown file extension" in result.stderr:
             self.skipTest("this node cannot strip TypeScript types")
@@ -621,7 +622,7 @@ class AgentTests(unittest.TestCase):
             console.log(JSON.stringify({ sent, plain: subagentType("Chat") }))
         """
         plugin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
-        result = subprocess.run(["node", "--input-type=module", "-e", script, plugin],
+        result = subprocess.run(["node", "--input-type=module", "-e", script, Path(plugin).as_uri()],
                                 capture_output=True, text=True, check=True)
         output = json.loads(result.stdout)
         events = [(e["hook_event_name"], e.get("session_id"), e.get("agent_id"), e.get("agent_type"))
@@ -659,7 +660,7 @@ class AgentTests(unittest.TestCase):
             console.log(JSON.stringify(sent))
         """
         plugin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
-        result = subprocess.run(["node", "--input-type=module", "-e", script, plugin],
+        result = subprocess.run(["node", "--input-type=module", "-e", script, Path(plugin).as_uri()],
                                 capture_output=True, text=True, check=True)
         sent = json.loads(result.stdout)
         self.assertEqual([e.get("model") for e in sent[-2:]], ["glm-5.2", "glm-5.2"])

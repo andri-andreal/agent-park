@@ -41,7 +41,7 @@ class SetupTests(unittest.TestCase):
             config = json.loads((Path(root) / ".claude/settings.json").read_text())
             command = config["hooks"]["Stop"][0]["hooks"][0]["command"]
             # Windows writes forward slashes into the command; elsewhere as_posix() changes nothing.
-            self.assertIn((Path(root) / "data/agent-park/integration/agent_hook.py").as_posix(), command)
+            self.assertIn((Path(root).resolve() / "data/agent-park/integration/agent_hook.py").as_posix(), command)
             self.assertTrue((Path(root) / "data/agent-park/integration/agent_hook.py").is_file())
 
     @unittest.skipIf(sys.platform == "win32", "POSIX permission bits do not exist on Windows")
@@ -100,7 +100,7 @@ class SetupTests(unittest.TestCase):
             target.write_text('extension')
             with patch.dict(agent_park.LINKS, {'pi': (path, target)}):
                 agent_park.configure('pi')
-                self.assertEqual(path.resolve(), target)
+                self.assertEqual(path.resolve(), target.resolve())
                 agent_park.configure('pi', remove=True)
                 self.assertFalse(path.exists())
                 self.assertTrue(target.exists())
