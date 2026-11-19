@@ -78,10 +78,16 @@ the checkout run:
 A **limits** box in the top-right, left of the system box (in the corner when the
 system box is hidden), shows how much of your Claude, Codex, MiniMax and Kimi
 limits is already used: a bar per window (`5h`, `7d`, ...), the percentage, and
-the time until it resets. A small cat per provider worries as the limit fills;
-bars turn yellow from 70% and pulse red from 90%. The 3D app has the same panel.
+the time until it resets. The terminal's pixel view has a colored mascot per
+provider, smooth block meters and aligned **USED / RESET** columns. **OK**, **WATCH**
+and **LOW** mark the usage level; bars turn yellow from 70% and pulse red from 90%.
+The provider summary shows the smallest percentage remaining across its windows.
+Unknown readings use `--%` and unknown resets use `--`. The 3D app also shows usage limits.
 `old 15m` marks a sample older than 15 minutes. When the terminal is too short,
-only the providers that fit are shown, followed by `+N more`.
+only the providers that fit are shown, followed by `+N more`. Pixel panels also
+append `/OLD` to the status of stale providers. ASCII terminals retain the compact panel.
+
+![Pixel usage limits with provider mascots, quota meters, remaining capacity and reset times](docs/terminal-limits.png)
 
 Kimi only records its 5h window, and MiniMax its worst model's interval window.
 The numbers are read, read-only, from the history database of
@@ -95,7 +101,7 @@ live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and
 as a 3D app.
 
-![Agent Park pixel art in the terminal: Claude and Codex at pixel computers, OpenCode waiting for approval, and idle animals playing with yarn, butterflies and a cardboard box](docs/terminal.png)
+![Agent Park pixel art in the terminal with provider usage meters, system stats, working agents at pixel computers and idle animals in the park](docs/terminal.png)
 
 By default, the park is only populated by animals belonging to running
 Claude Code, Codex, and OpenCode sessions (see **AI cats** below), their

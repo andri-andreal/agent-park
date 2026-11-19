@@ -5,9 +5,10 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from screensaver import LIMITS_WIDTH, SPEECH_ROOM, SPRITES, World, render
+from screensaver import AGENTS, LIMITS_WIDTH, SPEECH_ROOM, SPRITES, World, render, render_limits, pixel_meter
+import terminal_pixels
 from usage_limits import STALE_AFTER, UsageMonitor, mood_face, until
 from test_screensaver import Screen, land
 
@@ -50,6 +51,69 @@ def make_db(path, claude=True, minimax=True, codex=True, kimi=True, windows=Fals
 
 
 class UsageTests(unittest.TestCase):
+    def pixel_styles(self):
+        curses = Mock(COLORS=256, COLOR_PAIRS=256)
+        curses.color_pair.side_effect = lambda index: index
+        shades = dict(zip(SPRITES, (208, 39, 141, 220, 245)))
+        shades.update({kind: value[2] for kind, value in AGENTS.items()})
+        pixels = terminal_pixels.make_styles(curses, 40, -1, shades,
+                    {kind: value[1] for kind, value in AGENTS.items()}, scenery=True)
+        self.assertIsNotNone(pixels)
+        return dict(dict.fromkeys(SPRITES, 0), pixels=pixels, calm=256, busy=512, enemy=1024)
+
+    def test_pixel_panel_shows_separate_used_remaining_reset_and_age(self):
+        make_db(self.path, windows=True)
+        usage = UsageMonitor(self.path, clock=lambda: NOW).poll()
+        usage[0]['windows'][0]['pct'] = 96
+        usage[1]['windows'][0]['pct'] = 75
+        usage[2]['stale'] = True
+        styles = self.pixel_styles()
+        screen = Screen(34, 150)
+        with patch('screensaver.time.time', return_value=NOW):
+            render_limits(screen, World(150, 34), styles, True, usage, 22)
+        text = '\n'.join(''.join(row) for row in screen.rows)
+        for part in ('LIMITS / used', 'CLAUDE', 'CODEX', 'MINIMAX', 'KIMI',
+                     '96%', '75%', '4% left', '1h05m', 'RESET', 'old ', 'LOW', 'WATCH', 'OK', '▀'):
+            self.assertIn(part, text)
+
+    def test_pixel_panel_handles_unknowns_long_names_and_small_screens(self):
+        styles = self.pixel_styles()
+        usage = [{'provider': 'claude', 'label': 'claude', 'stale': False, 'updated_at': NOW,
+                  'windows': [{'name': 'a-window-name-that-is-long', 'pct': None, 'resets_at': None},
+                              {'name': 'nan', 'pct': float('nan'), 'resets_at': float('nan')}]}]
+        for width, height, system in ((80, 24, False), (150, 20, True), (40, 12, False)):
+            screen = Screen(height, width)
+            with patch('screensaver.time.time', return_value=NOW):
+                render_limits(screen, World(width, height), styles, system, usage, 22)
+            text = '\n'.join(''.join(row) for row in screen.rows)
+            if height >= 20:
+                self.assertIn('UNKNOWN', text)
+                self.assertIn('--%', text)
+                self.assertNotIn('0%', text)
+
+    def test_pixel_panel_counts_hidden_providers_and_stays_clear_of_raid(self):
+        make_db(self.path)
+        usage = UsageMonitor(self.path, clock=lambda: NOW).poll() * 3
+        styles = self.pixel_styles()
+        for raid in (False, True):
+            world = World(150, 22)
+            if raid:
+                world.start_raid(monster='firefox')
+            screen = Screen(22, 150)
+            with patch('screensaver.time.time', return_value=NOW):
+                render_limits(screen, world, styles, False, usage, 22)
+            text = '\n'.join(''.join(row) for row in screen.rows)
+            self.assertIn('more / enlarge terminal', text)
+            if raid:
+                self.assertTrue(all(ch == ' ' for ch in screen.rows[2]))
+
+    def test_pixel_meter_has_constant_width_and_clamps_used_percentage(self):
+        for pct in (-5, 0, .1, 12.5, 50, 96, 100, 200):
+            self.assertEqual(len(pixel_meter(pct)), 10)
+        self.assertEqual(pixel_meter(0), '░' * 10)
+        self.assertEqual(pixel_meter(100), '█' * 10)
+        self.assertIn('▎', pixel_meter(12.5))
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.dir.name, "history.db")

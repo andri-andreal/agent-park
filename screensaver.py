@@ -1645,6 +1645,8 @@ def render_limits(screen, world, styles, system_shown, usage, left_used):
     The box sits left of the system box and its watch cat, or in the corner without them.
     `left_used` is the width of the box in the top-left, which it must not run into.
     """
+    if 'pixels' in styles:
+        return render_pixel_limits(screen, world, styles, system_shown, usage, left_used)
     height, width = screen.getmaxyx()
     if not usage or height < 20:
         return
@@ -1707,6 +1709,110 @@ def render_limits(screen, world, styles, system_shown, usage, left_used):
             draw(screen, top + 1 + row, x, text, attr)
             x += len(text)
     draw(screen, top + 1 + len(rows), left, "+" + "-" * inner + "+", curses.A_DIM)
+
+
+def pixel_meter(pct, width=10):
+    """An eighth-cell meter; all percentages represent quota already used."""
+    units = round(max(0, min(100, pct)) * width * 8 / 100)
+    full, partial = divmod(units, 8)
+    return '█' * full + ('▏▎▍▌▋▊▉'[partial - 1] if partial else '') + '░' * (width - full - bool(partial))
+
+
+def render_pixel_limits(screen, world, styles, system_shown, usage, left_used):
+    """Pixel mascots and aligned quota meters, kept clear of other panels."""
+    height, width = screen.getmaxyx()
+    if not usage or height < 20:
+        return
+    top = 3 if world.raid else 2
+    right = width - SYSTEM_WIDTH - 1 - SPEECH_ROOM if system_shown else width - 1
+    panel_width = min(38, right - left_used - 3)
+    if panel_width < 34:
+        return
+    left, inner = right - panel_width, panel_width - 2
+    room = inner - 2
+    now = time.time()
+    groups = []
+    for limit in usage:
+        windows = []
+        for window in limit.get('windows', ()):
+            value = window.get('pct')
+            pct = max(0, min(100, value)) if isinstance(value, (int, float)) and math.isfinite(value) else None
+            windows.append((window, pct))
+        if not windows:
+            continue
+        known = [pct for _, pct in windows if pct is not None]
+        worst = max(known) if known else None
+        status = 'UNKNOWN' if worst is None else 'LOW' if worst >= 90 else 'WATCH' if worst >= 70 else 'OK'
+        if limit.get('stale'):
+            status += '/OLD'
+        accent = styles.get(limit['provider'], styles.get('claude', curses.A_BOLD))
+        shade = (styles.get('enemy', curses.A_BOLD) if worst is not None and worst >= 90 else
+                 styles.get('busy', curses.A_BOLD) if worst is not None and worst >= 70 else
+                 styles.get('calm', accent))
+        updated = limit.get('updated_at')
+        age = duration(max(0, now - updated)) if isinstance(updated, (int, float)) and math.isfinite(updated) else '?'
+        age_text = ('old ' if limit.get('stale') else 'updated ') + age
+        remaining = 'usage unknown'
+        if known:
+            remaining = f'{round(100 - worst)}% left' if len(known) == len(windows) else 'partial data'
+        rows = [
+            [(" " * 9 + limit['label'].upper(), accent | curses.A_BOLD)],
+            [(" " * 9 + remaining + ' / ' + age_text, curses.A_DIM)],
+        ]
+        # Keep status anchored on the provider row, independently of name length.
+        rows[0].append((' ' * max(1, room - 9 - len(limit['label']) - len(status)) + status, shade))
+        for window, pct in windows:
+            reset_at = window.get('resets_at')
+            reset = until(reset_at, now) if isinstance(reset_at, (int, float)) and math.isfinite(reset_at) else '--'
+            level = (styles.get('enemy', curses.A_BOLD) if pct is not None and pct >= 90 else
+                     styles.get('busy', curses.A_BOLD) if pct is not None and pct >= 70 else
+                     styles.get('calm', accent))
+            if pct is not None and pct >= 90 and int(now * 2) % 2:
+                level |= curses.A_BOLD
+            rows.append([(f"{short_label(window.get('name'), 7):<7} ", curses.A_DIM),
+                         (pixel_meter(pct) if pct is not None else '░' * 10, level),
+                         (f' {round(pct):3d}%' if pct is not None else '  --%', level | curses.A_BOLD),
+                         ('  ' + reset[:7], curses.A_DIM)])
+        groups.append((limit, rows))
+    space = height - top - 4
+    if world.raid and right > width - 26:
+        monster_top = world.ground_top + max(0, height - 6 - world.ground_top) // 2 - 1
+        space = min(space, monster_top - top - 2)
+    # One line for the column legend and one summary if anything is hidden.
+    shown, used = [], 1
+    for index, group in enumerate(groups):
+        required = len(group[1]) + bool(shown)
+        if used + required + (index < len(groups) - 1) > space:
+            break
+        shown.append(group)
+        used += required
+    if not shown:
+        return
+    rows = [[(f"{'WINDOW':8}{'USED':17}RESET", curses.A_DIM)]]
+    mascots = []
+    for limit, group_rows in shown:
+        if len(rows) > 1:
+            rows.append([('─' * room, curses.A_DIM)])
+        mascots.append((top + 1 + len(rows), limit))
+        rows.extend(group_rows)
+    if len(shown) < len(groups):
+        rows.append([(f'+{len(groups) - len(shown)} more / enlarge terminal', curses.A_DIM)])
+    border = styles.get('codex', curses.A_DIM)
+    title = ' LIMITS / used '
+    draw(screen, top, left, '┌' + title.ljust(inner, '─') + '┐', border)
+    for row, parts in enumerate(rows, top + 1):
+        draw(screen, row, left, '│' + ' ' * inner + '│', border)
+        x = left + 2
+        for text, attr in parts:
+            text = text[:max(0, left + 2 + room - x)]
+            draw(screen, row, x, text, attr)
+            x += len(text)
+    draw(screen, top + len(rows) + 1, left, '└' + '─' * inner + '┘', border)
+    for y, limit in mascots:
+        kind = {'minimax': 'mcode'}.get(limit['provider'], limit['provider'])
+        species = AGENTS.get(kind, ('', 'kucing'))[1]
+        terminal_pixels.render(draw, screen, y, left + 2, 'anak ' + species, 'idle',
+                               int(world.elapsed * 2), False, kind, styles['pixels'], rows=(0, 1))
 
 
 def render_office(screen, world, styles):
