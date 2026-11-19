@@ -95,7 +95,7 @@ live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and
 as a 3D app.
 
-![Agent Park in the terminal: Claude and Codex working at their own desks, OpenCode asking for permission, Kiro and Pi playing in the park](docs/terminal.png)
+![Agent Park pixel art in the terminal: Claude and Codex at pixel computers, OpenCode waiting for approval, and Kiro and Pi in the park](docs/terminal.png)
 
 By default, the park is only populated by animals belonging to running
 Claude Code, Codex, and OpenCode sessions (see **AI cats** below), their
@@ -379,7 +379,26 @@ Run from the project folder:
 ```sh
 python3 screensaver.py          # AI cats only
 python3 screensaver.py --semua  # plus wild animals
+python3 screensaver.py --ascii  # use the original ASCII animals
 ```
+
+The terminal park now draws compact, shaded pixel animals with Unicode half
+blocks on UTF-8 terminals with 256 colors and enough color pairs. Cats, dogs,
+rabbits, ducks, mice and their babies keep their agent colors, blink, move their
+feet and close their eyes when sleeping. Arrival effects also use the pixel
+sprites. Each adult still fits in four terminal rows, including at office desks.
+Unsupported terminals automatically use ASCII; `--ascii` selects it explicitly.
+Scenery uses the same pixel style: shaded trees and flowers in the park, pines
+and blinking fireflies in the forest, palms and animated waves at the beach,
+and tiled-roof houses in the village. Clouds drift across the park sky.
+HQ computers also have pixel monitors, stands and wooden desks. Their screens
+retain the working animation, boot message and idle `zz` display.
+
+![Pixel scenery for all four terminal locations](docs/terminal-backgrounds.png)
+
+![Pixel computers showing working, booting and empty desks](docs/terminal-computers.png)
+
+See the [animal sprite preview](docs/terminal-pixels.png) for agent colors and poses.
 
 Enable fullscreen from your terminal application (usually **F11** on Linux).
 The animation automatically follows the terminal size, including after a

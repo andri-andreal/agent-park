@@ -20,6 +20,7 @@
     "resources": {
       "../../park_state.py": "backend/park_state.py",
       "../../screensaver.py": "backend/screensaver.py",
+      "../../terminal_pixels.py": "backend/terminal_pixels.py",
       "../../agent_hook.py": "backend/agent_hook.py",
       "../../platform_support.py": "backend/platform_support.py",
       "../../usage_limits.py": "backend/usage_limits.py",

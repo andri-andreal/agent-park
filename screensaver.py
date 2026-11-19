@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of
 from platform_support import python_command, source_for
 from usage_limits import UsageMonitor, mood_face, until
+import terminal_pixels
 
 
 # Artwork faces left; each animal is mirrored when walking right.
@@ -1049,6 +1050,9 @@ def style_of(styles, animal):
 
 def render_place(screen, world, styles, particles):
     """Distant scenery ends at the horizon; animals roam on the ground."""
+    if "pixels" in styles and 'scenery' in styles['pixels'][0]:
+        terminal_pixels.render_scenery(draw, screen, world, styles['pixels'], particles)
+        return
     height, width = screen.getmaxyx()
     horizon = world.ground_top - 1
     grass = (styles["bebek"] & ~curses.A_BOLD) | curses.A_DIM
@@ -1163,8 +1167,9 @@ def render_raid(screen, world, styles):
         busy = len(world.animals) - len(team)
         if busy:
             banner += f" | {busy} still working"
-    draw(screen, 2, 0, " " * width)
-    draw(screen, 2, 2, banner, curses.A_BOLD)
+    banner_x, banner_y = (text_x(styles), PICTURE_ROWS - 1) if "picture" in styles else (2, 2)
+    draw(screen, banner_y, banner_x, " " * (width - banner_x))
+    draw(screen, banner_y, banner_x, banner, curses.A_BOLD)
 
 
 def sprite_lines(animal):
@@ -1174,7 +1179,7 @@ def sprite_lines(animal):
     return lines
 
 
-def render_entrance(screen, world, animal, style):
+def render_entrance(screen, world, animal, style, pixels=None):
     """Arrival effects; `progress` runs from 0 to 1 while the cat lands."""
     total = KITTEN_ENTRANCE[1] if animal.entrance == "pop" else ENTRANCES[animal.entrance][0]
     progress = 1 - animal.entry / total
@@ -1184,6 +1189,11 @@ def render_entrance(screen, world, animal, style):
     bold = style | curses.A_BOLD
 
     def sprite(top, rows=None):
+        if pixels:
+            terminal_pixels.render(draw, screen, top, x, animal.species, animal.state,
+                                   int(world.elapsed * 6), animal.vx > 0,
+                                   animal.agent_kind, pixels, rows)
+            return
         for row, line in enumerate(lines):
             if rows is None or row in rows:
                 draw(screen, top + row, x, " " * width)
@@ -1253,6 +1263,10 @@ def render_entrance(screen, world, animal, style):
         else:
             label(f"[{animal.name}] landed!")
     elif animal.entrance == "teleport":
+        if pixels and progress >= 0.8:
+            sprite(y)
+            label(f"[{animal.name}] bzzt... {int(progress * 100)}%")
+            return
         # Noise settles into the cat, character by character.
         for row, line in enumerate(lines):
             text = "".join(
@@ -1356,7 +1370,7 @@ def render_routers(screen, world, routers, styles, crowded):
     # The system box and its cat's speech take the right side on narrower screens.
     if not routers or width < (80 if crowded else 40) or height < 20:
         return
-    left, top, inner = 1, 2, ROUTER_WIDTH - 2
+    left, top, inner = 1, corner_top(styles), ROUTER_WIDTH - 2
     # Stay above the ground, keeping a row for "+N more".
     shown = routers[:max(1, min(ROUTER_SHOWN, (world.ground_top - top - 3) // 3))]
     rows = 3 * len(shown) + (len(routers) > len(shown))
@@ -1404,7 +1418,7 @@ def render_stats(screen, world, styles, crowded):
     # During a raid the banner owns the top rows, so step aside for it.
     if world.raid or width < (80 if crowded else 40) or height < 20:
         return
-    left, top, inner = 1, 2, STATS_WIDTH - 2
+    left, top, inner = 1, corner_top(styles), STATS_WIDTH - 2
     agents = [a for a in world.animals if a.agent and not a.sub]
     working = sum(1 for a in agents if a.status == "work")
     if world.auto_place:
@@ -1517,19 +1531,80 @@ def render_office(screen, world, styles):
     for index, (x, y) in enumerate(world.desks()):
         cat = users.get(index)
         style = style_of(styles, cat) if cat else curses.A_DIM
-        for row, line in enumerate(COMPUTER):
-            draw(screen, y + row, x + 13, line, style)
         if cat and cat.seated:
             text = SCREEN_TEXT[int(world.elapsed * 2 + index * 3) % len(SCREEN_TEXT)]
         elif cat:
             text = "boot" + "." * (int(world.elapsed * 4) % 4)  # its cat is on the way
         else:
             text = "  zz"  # screen saver of the screen saver
-        draw(screen, y + 1, x + 14, text.ljust(7), style)
+        if "pixels" in styles and 'scenery' in styles['pixels'][0]:
+            terminal_pixels.render_computer(draw, screen, y, x + 13, text, styles['pixels'])
+        else:
+            for row, line in enumerate(COMPUTER):
+                draw(screen, y + row, x + 13, line, style)
+            draw(screen, y + 1, x + 14, text.ljust(7), style)
     busy = sum(1 for a in world.animals if a.agent and not a.sub and a.status == "work")
     sign = f"[ AI HQ: {busy} working ]" if busy else "[ AI HQ: empty ]"
     draw(screen, world.ground_top - 1, left + (width - left - len(sign)) // 2, sign,
          styles.get("claude", curses.A_BOLD) if busy else curses.A_DIM)
+
+
+# The park's logo: a capital A, two rows tall so it fits beside the header
+# without touching the stats box that starts on row 2.
+LOGO = (" /\\ ", "/--\\")
+LOGO_X = 2
+TEXT_X = LOGO_X + len(LOGO[0]) + 2
+
+# The park's picture, for terminals with 256 colours and UTF-8: a 10x8 pixel
+# cat face drawn with half blocks (each cell shows two pixels), so 10 columns
+# by 4 rows. T is the terminal's own background, G grass, O fur, K eyes,
+# P nose. Anything less falls back to LOGO.
+PICTURE = (
+    "TOTTTTTTOT",
+    "TOOTTTTOOT",
+    "TOOOOOOOOT",
+    "TOKOOOOKOT",
+    "TOOOPPOOOT",
+    "GGOOOOOOGG",
+    "GGGOOOOGGG",
+    "GGGGGGGGGG",
+)
+PICTURE_SHADES = {"G": 71, "O": 208, "K": 235, "P": 218}
+PICTURE_ROWS = len(PICTURE) // 2
+
+
+def picture_pairs(first_pair, background):
+    """Map each (top, bottom) pixel pair to (character, attributes); None if unsupported."""
+    import locale
+    if curses.COLORS < 256 or "utf" not in (locale.getpreferredencoding(False) or "").lower():
+        return None
+    combos = sorted({(PICTURE[2 * row][col], PICTURE[2 * row + 1][col])
+                     for row in range(PICTURE_ROWS) for col in range(len(PICTURE[0]))})
+    if curses.COLOR_PAIRS <= first_pair + len(combos):
+        return None
+    cells = {}
+    for offset, (top, bottom) in enumerate(combos):
+        if top == bottom == "T":
+            cells[top, bottom] = (" ", 0)
+            continue
+        if top == "T":
+            char, fore, back = "\u2584", PICTURE_SHADES[bottom], background
+        else:
+            char, fore = "\u2580", PICTURE_SHADES[top]
+            back = background if bottom == "T" else PICTURE_SHADES[bottom]
+        curses.init_pair(first_pair + offset, fore, back)
+        cells[top, bottom] = (char, curses.color_pair(first_pair + offset))
+    return cells
+
+
+def text_x(styles):
+    """Where the header text starts: right of the picture, or of the letter."""
+    return LOGO_X + (len(PICTURE[0]) if "picture" in styles else len(LOGO[0])) + 2
+
+
+def corner_top(styles):
+    """First row for the boxes in the top-left, below the picture."""
+    return max(2, PICTURE_ROWS) if "picture" in styles else 2
 
 
 def render(screen, world, speed, paused, styles, stars, system=None, routers=(), usage=()):
@@ -1539,22 +1614,36 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
     else:
         mode = f"next {max(1, math.ceil(world.place_timer))}s" if world.auto_place else "locked"
     header = f"AGENT PARK / {world.place.upper()} / {mode}"
-    draw(screen, 0, 2, header, curses.A_BOLD)
+    text_left = text_x(styles)
+    if "picture" in styles:
+        for row in range(PICTURE_ROWS):
+            for col in range(len(PICTURE[0])):
+                pair = (PICTURE[2 * row][col], PICTURE[2 * row + 1][col])
+                char, attr = styles["picture"][pair]
+                draw(screen, row, LOGO_X + col, char, attr)
+    else:
+        accent = styles.get("claude", curses.A_BOLD) | curses.A_BOLD
+        for row, line in enumerate(LOGO):
+            draw(screen, row, LOGO_X, line, accent)
+    # Beside the picture the title sits level with its middle.
+    header_row = 1 if "picture" in styles else 0
+    draw(screen, header_row, text_left, header,
+         styles.get("claude", curses.A_BOLD) | curses.A_BOLD if "picture" in styles else curses.A_BOLD)
     # A clock centred on the top row, between the header and the system panel.
     clock = time.strftime("%H:%M:%S")
     clock_x = (width - len(clock)) // 2
     right_edge = (width - SYSTEM_WIDTH - 1) if (system is not None and system.cpu is not None) else width
-    if clock_x > 2 + len(header) + 1 and clock_x + len(clock) < right_edge - 1:
-        draw(screen, 0, clock_x, clock, curses.A_DIM)
+    if clock_x > text_left + len(header) + 1 and clock_x + len(clock) < right_edge - 1:
+        draw(screen, header_row, clock_x, clock, curses.A_DIM)
     if world.notice_timer > 0:
-        draw(screen, 1, 2, world.notice, curses.A_DIM)
+        draw(screen, header_row + 1, text_left, world.notice, curses.A_DIM)
     render_place(screen, world, styles, stars)
     render_office(screen, world, styles)
     for animal in sorted(world.animals, key=lambda a: a.y):
         if animal.state == "fight":
             continue
         if animal.entry > 0:
-            render_entrance(screen, world, animal, style_of(styles, animal))
+            render_entrance(screen, world, animal, style_of(styles, animal), styles.get("pixels"))
             continue
         frame = ART[animal.species][int(world.elapsed * speed / 3 + animal.phase) % 2]
         if animal.state == "work":
@@ -1563,13 +1652,18 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
             frame = ART[animal.species][0]
         bouncy = {"hop": 5, "cheer": 5, "wait": 5, "work": 9}.get(animal.state)
         offset = -int((world.elapsed * bouncy + animal.phase) % 2) if bouncy else 0
-        for row, line in enumerate(frame):
+        for row, line in enumerate(frame if "pixels" not in styles else ()):
             if animal.state == "sleep":
                 line = line.replace("o", "-").replace("'", "-")
             if animal.vx > 0:
                 line = line.ljust(animal.width)[::-1].translate(MIRROR)
             draw(screen, animal.y + row + offset, animal.x, " " * animal.width)
             draw(screen, animal.y + row + offset, animal.x, line, style_of(styles, animal))
+        if "pixels" in styles:
+            terminal_pixels.render(draw, screen, animal.y + offset, animal.x,
+                                   animal.species, animal.state,
+                                   int(world.elapsed * (6 if animal.state == "work" else speed / 3) + animal.phase),
+                                   animal.vx > 0, animal.agent_kind, styles["pixels"])
         if animal.state == "work" and animal.seated:
             # Keys clattering between the cat and its computer.
             flick = int(world.elapsed * 8) % 2
@@ -1627,7 +1721,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
     draw(screen, height - 1, 2, ("[PAUSED] " if paused else "") + footer, curses.A_DIM)
 
 
-def main(screen, wild=False):
+def main(screen, wild=False, ascii_only=False):
     try:
         curses.curs_set(0)
     except curses.error:
@@ -1661,6 +1755,17 @@ def main(screen, wild=False):
             for index, (kind, (_, _, shade, fallback)) in enumerate(AGENTS.items(), 7):
                 curses.init_pair(index, shade if rich else fallback, background)
                 styles[kind] = curses.color_pair(index) | curses.A_BOLD
+        pairs = picture_pairs(9 + len(AGENTS) + 2, background)
+        if pairs:
+            styles["picture"] = pairs
+        if not ascii_only:
+            shades = dict(zip(SPRITES, (208, 39, 141, 220, 245)))
+            shades.update({kind: values[2] for kind, values in AGENTS.items()})
+            pixel_styles = terminal_pixels.make_styles(
+                curses, 40, background, shades, {kind: values[1] for kind, values in AGENTS.items()},
+                scenery=True)
+            if pixel_styles:
+                styles["pixels"] = pixel_styles
     height, width = screen.getmaxyx()
     world = World(width, height, wild=wild)
     rng = random.Random(42)
@@ -1731,7 +1836,7 @@ if __name__ == "__main__":
         from agent_park import prompt_setup
         prompt_setup()
         # Only agent cats by default; --semua brings back the wild animals too.
-        curses.wrapper(main, "--semua" in sys.argv[1:])
+        curses.wrapper(main, "--semua" in sys.argv[1:], "--ascii" in sys.argv[1:])
     except KeyboardInterrupt:
         pass
     except curses.error as error:
