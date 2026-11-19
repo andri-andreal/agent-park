@@ -132,6 +132,7 @@ HOOK_STALE = 90.0
 # Working cats zoom around the park and change course often.
 WORK_SPEED = 2.2
 WORK_CHATTER = ("tik tak tuk!", "coding!!", "wooosh!", "busy busy!", "compile!", "full speed!")
+PLAY_STATES = ("yarn", "butterfly", "box")
 # How agent cats arrive: (seconds, announcement). Picked at random per cat.
 ENTRANCES = {
     "meteor": (3.0, "A METEOR fell into the park! Oh... it's {name}!"),
@@ -192,6 +193,7 @@ class Animal:
     entry: float = 0.0  # seconds of that effect left
     desk: int = -1  # office desk while working (see World.desks)
     seated: bool = False  # at that desk, typing
+    play_home: object = None  # (x, y) centre of a short play session
 
     @property
     def width(self):
@@ -807,6 +809,47 @@ class World:
         }
         self.say(messages[kind])
 
+    def start_play(self, animal, game=None):
+        """Offer a quiet game only to a free resident already in the park."""
+        if (self.raid or animal.visitor or animal.sub or animal.entry > 0
+                or (animal.agent and animal.status != "idle")
+                or animal.state in ("fight", "greet", "chase")
+                or animal.x > self.lane(animal)[1]):
+            return False
+        game = game or self.rng.choice(PLAY_STATES)
+        if game not in PLAY_STATES:
+            return False
+        animal.state, animal.timer = game, self.rng.uniform(7, 12)
+        animal.play_home = (animal.x, animal.y)
+        animal.desk, animal.seated = -1, False
+        return True
+
+    def play_break(self):
+        count = sum(self.start_play(animal) for animal in self.animals)
+        if count:
+            self.say("Play break! Yarn balls, butterflies and cozy cardboard boxes.")
+        return count
+
+    def play_target(self, animal):
+        x, y = animal.play_home or (animal.x, animal.y)
+        phase = self.elapsed * (1.5 if animal.state == "yarn" else .9) + animal.phase
+        low, high = self.lane(animal)
+        tx = max(low + 2, min(high + animal.width - 4, x + animal.width / 2 + math.sin(phase) * 7))
+        ty = y + 3 if animal.state == "yarn" else y - 4 + math.sin(phase * 1.7) * .5
+        return tx, max(self.ground_top, min(self.height - 4, ty))
+
+    def play(self, animal, dt, speed):
+        if animal.state == "box":
+            return  # sit and peek over the rim
+        tx, _ = self.play_target(animal)
+        dx = tx - (animal.x + animal.width / 2)
+        if abs(dx) > 2:
+            animal.vx = 1 if dx > 0 else -1
+            animal.x += animal.vx * min(abs(dx) - 2, dt * speed * .65)
+        low, high = self.lane(animal)
+        animal.x = max(low, min(high, animal.x))
+        self.constrain(animal)
+
     def start_raid(self, monster="misterius", detail=""):
         if self.raid or not self.animals:
             return
@@ -967,14 +1010,20 @@ class World:
                 animal.vx, animal.vy = -1, 0
             if not animal.visitor and animal.timer <= 0:
                 animal.state = self.rng.choices(
-                    ("walk", "sleep", "groom", "hop", "sprint"), (5, 2, 1, 2, 1)
+                    ("walk", "sleep", "groom", "hop", "sprint", *PLAY_STATES),
+                    (5, 2, 1, 2, 1, 2, 2, 2)
                 )[0]
                 animal.timer = self.rng.uniform(2, 6)
                 animal.vx = self.rng.choice((-1, 1))
                 animal.vy = self.rng.uniform(-0.3, 0.3)
+                if animal.state in PLAY_STATES:
+                    self.start_play(animal, animal.state)
             if not animal.visitor and animal.x > self.lane(animal)[1]:
                 animal.state, animal.vx = "walk", -1  # no napping in the office
             if animal.state in ("sleep", "groom"):
+                continue
+            if animal.state in PLAY_STATES:
+                self.play(animal, dt, speed)
                 continue
             multiplier = {"sprint": 2, "flee": 2, "pass": 1.3}.get(animal.state, 1)
             self.move(animal, dt, speed * multiplier)
@@ -1046,6 +1095,28 @@ def draw(screen, y, x, text, style=0):
 
 def style_of(styles, animal):
     return styles.get(animal.agent_kind, styles.get(animal.species, curses.A_BOLD))
+
+
+def render_play(screen, world, animal, styles):
+    if animal.state not in PLAY_STATES:
+        return
+    tick = int(world.elapsed * 4 + animal.phase) % 2
+    if animal.state == "box":
+        x, y = animal.x, animal.y + 2
+        name = "box"
+        lines = (r"\________/", "|________|")
+    else:
+        x, y = world.play_target(animal)
+        name = ("yarn_roll" if tick else "yarn") if animal.state == "yarn" else (
+            "butterfly_flap" if tick else "butterfly")
+        lines = ("(@)~" if tick else "~(@)",) if animal.state == "yarn" else (
+            (">i<" if tick else "}i{"),)
+    pixels = styles.get("pixels")
+    if pixels and "scenery" in pixels[0]:
+        terminal_pixels.render_toy(draw, screen, y, x, name, pixels)
+    else:
+        for row, line in enumerate(lines):
+            draw(screen, y + row, x, line, style_of(styles, animal))
 
 
 def render_place(screen, world, styles, particles):
@@ -1664,6 +1735,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
                                    animal.species, animal.state,
                                    int(world.elapsed * (6 if animal.state == "work" else speed / 3) + animal.phase),
                                    animal.vx > 0, animal.agent_kind, styles["pixels"])
+        render_play(screen, world, animal, styles)
         if animal.state == "work" and animal.seated:
             # Keys clattering between the cat and its computer.
             flick = int(world.elapsed * 8) % 2
@@ -1683,6 +1755,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
             "rally": "ready!", "guard": "block!", "attack": "chaaarge!", "cheer": "yaaay!",
             "work": WORK_CHATTER[int(world.elapsed * 1.5 + animal.phase) % len(WORK_CHATTER)],
             "wait": "need you!" if int(world.elapsed * 2) % 2 else "hey? permission please!",
+            "yarn": "bat bat!", "butterfly": "ooh, butterfly!", "box": "if I fits, I sits!",
         }.get(animal.state)
         if animal.agent:
             # The name (and model) always shows so you can tell whose cat is
@@ -1717,7 +1790,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
         hint = "The park is quiet... run an AI agent (claude, codex, opencode, ...) and the animals will come."
         draw(screen, (world.ground_top + height) // 2, max(0, (width - len(hint)) // 2), hint, curses.A_DIM)
     footer = "q quit | r raid | l location | space pause | a auto | "
-    footer += ("n animal | " if world.wild else "") + "s system | +/- speed"
+    footer += ("n animal | " if world.wild else "") + "p play | s system | +/- speed"
     draw(screen, height - 1, 2, ("[PAUSED] " if paused else "") + footer, curses.A_DIM)
 
 
@@ -1804,6 +1877,8 @@ def main(screen, wild=False, ascii_only=False):
             if not paused:
                 if key in (ord("n"), ord("N")) and world.wild:
                     world.spawn(visitor=True)
+                elif key in (ord("p"), ord("P")):
+                    world.play_break()
                 elif key in (ord("r"), ord("R")):
                     world.start_raid()
                 if now >= next_poll:

@@ -54,6 +54,11 @@ SCENERY = {
     'bank': ('lglglglg', 'ssssssss'),
     'computer': ('.ccccccc.', 'csssssssc', 'csssssssc', 'csssssssc',
                  '.ccccccc.', '....c....', 'ttttttttt', 'bb.....bb'),
+    'yarn': ('.rr.', 'ryrr', 'rryr', '.rr.'),
+    'yarn_roll': ('.rr.', 'rryr', 'ryrr', '.rr.'),
+    'butterfly': ('r...r', 'rryrr', '.ryr.', 'r.y.r'),
+    'butterfly_flap': ('.r.r.', '.ryr.', '..y..', '.r.r.'),
+    'box': ('tyttttttyt', 'bbbbbbbbbb', 'tyttttttyt', 'bbbbbbbbbb'),
 }
 
 
@@ -142,6 +147,17 @@ def render_computer(draw, screen, y, x, text, styles):
             char, fg, bg = cell(a, b)
             draw(screen, y + row, x + col, char, pairs[palette[fg], palette[bg]])
     draw(screen, y + 1, x + 1, text[:7].ljust(7), pairs[palette['w'], palette['s']])
+
+
+def render_toy(draw, screen, y, x, name, styles):
+    palette, pairs = styles[0]['scenery'], styles[1]
+    grid = SCENERY[name]
+    for row in range(len(grid) // 2):
+        for col, (a, b) in enumerate(zip(grid[row * 2], grid[row * 2 + 1])):
+            if a == b == '.':
+                continue
+            char, fg, bg = cell(a, b)
+            draw(screen, y + row, x + col, char, pairs[palette[fg], palette[bg]])
 
 
 def render_scenery(draw, screen, world, styles, particles):

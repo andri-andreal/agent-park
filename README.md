@@ -95,7 +95,7 @@ live as animals in a park: they go to the office when working, jump when they
 need your approval, and play when idle. Available as a terminal screensaver and
 as a 3D app.
 
-![Agent Park pixel art in the terminal: Claude and Codex at pixel computers, OpenCode waiting for approval, and Kiro and Pi in the park](docs/terminal.png)
+![Agent Park pixel art in the terminal: Claude and Codex at pixel computers, OpenCode waiting for approval, and idle animals playing with yarn, butterflies and a cardboard box](docs/terminal.png)
 
 By default, the park is only populated by animals belonging to running
 Claude Code, Codex, and OpenCode sessions (see **AI cats** below), their
@@ -105,6 +105,11 @@ sessions yet, the park is empty with the text `The park is quiet...`. Run with
 
 ASCII cats, dogs, rabbits, ducks, and mice with random behavior.
 Some stroll leisurely, sleep, groom themselves, jump, or suddenly dash off.
+Idle residents also bat rolling yarn balls, follow fluttering butterflies, or
+settle into cardboard boxes. Games last a few seconds and appear automatically;
+press `p` for a play break. Working agents, agents waiting for approval, arriving
+animals, helpers and passing visitors keep their own activities. A game stops
+as soon as its agent starts working, needs approval, or joins a monster raid.
 When they meet, they may greet each other, chase one another, or get into a
 cartoon fight with dust clouds and POW/BONK text, then flee in opposite
 directions.
@@ -410,6 +415,7 @@ resize.
 | `Space` | Pause / resume |
 | `+` / `-` | Increase / decrease speed |
 | `n` | Bring in a passing animal, if the screen is not yet full (only with `--semua`) |
+| `p` | Start a play break for idle residents already in the park |
 | `l` | Move to the next location |
 | `r` | Trigger a monster attack; all animals cooperate until they win |
 | `a` | Toggle automatic location switching (stay in the current place) |
