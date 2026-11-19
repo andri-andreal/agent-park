@@ -243,6 +243,21 @@ when tools run in parallel.
 
 ![Per-agent project and observed activity in the terminal info panel](docs/terminal-activity.png)
 
+**Click an agent animal to select its existing conversation tab in Konsole.**
+This uses Konsole's D-Bus routing variables from the agent process and needs
+`qdbus6` or `qdbus`. Clicking a helper selects its parent's session. No commands
+or text are sent to the conversation. A moved tab is found in its current window.
+Konsole windows are raised when they can be identified; desktop focus rules,
+especially on Wayland, may require bringing another window to the front manually.
+
+For shared Codex/OpenCode servers, direct navigation requires one live window
+and session, or a session ID explicitly present in the window process arguments
+(for example, a resumed session). Recency alone is not used for navigation.
+When the exact tab is unknown, closed, or belongs to another terminal application,
+the park opens the agent info panel with an explanation. Keyboard controls remain
+available on terminals without mouse reporting. Sessions inside tmux or GNU Screen
+are not routed using inherited Konsole variables; pane navigation is not supported.
+
 AI cats do not just walk in plainly. Their entrance is chosen at random: they
 fall as a **meteor** (KABOOM!), get lowered by a **UFO** with a beam, come out
 of a **portal**, **parachute** in, or get **teleported** from a random
@@ -435,6 +450,7 @@ resize.
 | `n` | Bring in a passing animal, if the screen is not yet full (only with `--semua`) |
 | `p` | Start a play break for idle residents already in the park |
 | `i` | Show/hide per-agent projects and observed activity; Up/Down or j/k scroll |
+| Left click on an agent | Select its existing Konsole conversation tab, when identified |
 | `l` | Move to the next location |
 | `r` | Trigger a monster attack; all animals cooperate until they win |
 | `a` | Toggle automatic location switching (stay in the current place) |

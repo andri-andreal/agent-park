@@ -25,6 +25,7 @@ from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of, short_
 from platform_support import python_command, source_for
 from usage_limits import UsageMonitor, mood_face, until
 import terminal_pixels
+from terminal_sessions import terminal_for_pid, focus_terminal
 
 
 # Artwork faces left; each animal is mirrored when walking right.
@@ -195,6 +196,7 @@ class Animal:
     seated: bool = False  # at that desk, typing
     play_home: object = None  # (x, y) centre of a short play session
     context: object = None  # project and last observed action from the session hook
+    terminal: object = None  # exact existing terminal tab, when identified
 
     @property
     def width(self):
@@ -233,6 +235,7 @@ class AgentMonitor:
         self.models = {}  # session key -> model name its hook reported, set by poll
         self.status_meta = {}  # session key -> source and last hook event time
         self.contexts = {}  # session key -> project and activity metadata
+        self.terminals = {}  # session key -> exact terminal routing; never a recency guess
         self.ticks_per_second = self.source.ticks_per_second
         self.history = {}
 
@@ -383,7 +386,7 @@ class AgentMonitor:
                 parent = procs[parent][2]
             if pid not in sessions and parent in sessions:
                 sessions[parent][1] += ticks
-        found, self.models, self.status_meta, self.contexts = {}, {}, {}, {}
+        found, self.models, self.status_meta, self.contexts, self.terminals = {}, {}, {}, {}, {}
         for pid, (kind, ticks) in sessions.items():
             samples = self.history.get(pid, [])[-AGENT_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples
@@ -391,6 +394,9 @@ class AgentMonitor:
             busy = end > start and (last - first) / self.ticks_per_second / (end - start) >= AGENT_BUSY_CPU
             found[pid] = kind, self.hook_status(pid, kind, busy) or ("work" if busy else "idle")
             self.status_meta.setdefault(pid, {"source": "cpu", "updated_at": None, "stale": False})
+            target = terminal_for_pid(pid, getattr(self.source, 'root', '/proc'))
+            if target:
+                self.terminals[pid] = target
         self.history = {pid: self.history[pid] for pid in found}
         self.forget_dead(set(pids))
         for kind in AGENTS:
@@ -398,14 +404,28 @@ class AgentMonitor:
             # never sent a hook keep their CPU guess.
             windows = sorted(pid for pid, (k, _) in found.items() if k == kind)
             shared = self.shared_sessions(kind, len(windows))
+            window_targets = {pid: self.terminals.get(pid) for pid in windows}
             for pid in windows[:len(shared)]:
                 del found[pid]
                 self.status_meta.pop(pid, None)
+                self.terminals.pop(pid, None)
             for updated, session, status, model in shared:
                 found[f"{kind}:{session}"] = kind, status
                 self.status_meta[f"{kind}:{session}"] = {"source": "hook", "updated_at": updated, "stale": False, "association": "recent-session"}
                 if model:
                     self.models[f"{kind}:{session}"] = model
+                # A single live window and session have one possible pairing.
+                # For multiple windows accept only an explicit resume/session ID.
+                matches = windows[:] if len(windows) == len(shared) == 1 else []
+                if not matches:
+                    for pid in windows:
+                        try:
+                            if session in self.source.args(pid):
+                                matches.append(pid)
+                        except (OSError, ValueError):
+                            pass
+                if len(matches) == 1 and window_targets.get(matches[0]):
+                    self.terminals[f"{kind}:{session}"] = window_targets[matches[0]]
         self.subagents = self.read_subagents(found)
         self.contexts = {key: value for key, value in self.contexts.items() if key in found}
         return found
@@ -718,16 +738,18 @@ class World:
             self.say(f"{species.capitalize()} numpang lewat dulu...")
         self.animals.append(animal)
 
-    def sync_agents(self, sessions, subagents=None, models=None, contexts=None):
+    def sync_agents(self, sessions, subagents=None, models=None, contexts=None, terminals=None):
         """Match agent cats to {pid: (kind, status)} from AgentMonitor.poll,
         kittens to {pid: [(agent id, agent type)]} from its subagents and
         names to {pid: model} from its models."""
         models = models or {}
         contexts = contexts or {}
+        terminals = terminals or {}
         for animal in self.animals:
             if animal.agent in sessions and not animal.sub:
                 animal.model = short_model(models.get(animal.agent, ""))
                 animal.context = contexts.get(animal.agent)
+                animal.terminal = terminals.get(animal.agent)
                 status = sessions[animal.agent][1]
                 if status == "wait" and animal.status != "wait":
                     self.say(f"{animal.name} needs your approval!")
@@ -762,6 +784,7 @@ class World:
                 agent=pid, agent_kind=kind, name=name, status=status,
                 model=short_model(models.get(pid, "")),
                 context=contexts.get(pid),
+                terminal=terminals.get(pid),
                 state="arrive", entrance=entrance, entry=duration,
             ))
             self.say(message.format(name=name))
@@ -1128,7 +1151,31 @@ def brief_activity(animal):
     return context.get('project', '') if action in ('Working', 'Working on request') else action
 
 
-def render_agent_info(screen, world, styles, offset=0):
+def animal_offset(world, animal):
+    bouncy = {"hop": 5, "cheer": 5, "wait": 5, "work": 9}.get(animal.state)
+    return -int((world.elapsed * bouncy + animal.phase) % 2) if bouncy else 0
+
+
+def clicked_agent(world, x, y, pixel_mode=False):
+    """Pick the frontmost rendered animal; helper clicks belong to their parent."""
+    for animal in reversed(sorted(world.animals, key=lambda a: a.y)):
+        if animal.state == 'fight' or animal.entry > 0:
+            continue
+        width = len(terminal_pixels.pixels(animal.species)[0]) if pixel_mode else animal.width
+        top = int(animal.y + animal_offset(world, animal))
+        body = int(animal.x) <= x < int(animal.x) + width and top <= y < top + len(ART[animal.species][0])
+        name = f'[{animal.name}]'
+        label_x = int(min(animal.x, world.width - len(name) - 1))
+        label = animal.agent and y == int(animal.y - 1) and label_x <= x < label_x + len(name)
+        if not body and not label:
+            continue
+        if not animal.agent:
+            return None
+        return next((a for a in world.animals if a.agent == animal.agent and not a.sub), None)
+    return None
+
+
+def render_agent_info(screen, world, styles, offset=0, message=''):
     """Inspect observed actions without crowding the cats' one-line labels."""
     height, width = screen.getmaxyx()
     agents = [a for a in world.animals if a.agent and not a.sub]
@@ -1165,7 +1212,7 @@ def render_agent_info(screen, world, styles, offset=0):
     for row, (text, style) in enumerate(rows, top + 1):
         draw(screen, row, left, '|' + ' ' * inner + '|')
         draw(screen, row, left + 1, text[:inner], style)
-    footer = ' i close | up/down scroll '
+    footer = ' ' + message + ' ' if message else ' i close | up/down scroll '
     draw(screen, top + len(rows) + 1, left, '+' + footer[:inner].ljust(inner, '-') + '+', curses.A_DIM)
 
 
@@ -1793,8 +1840,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
             frame = ART[animal.species][int(world.elapsed * 6) % 2]
         elif animal.state in ("sleep", "groom", "greet", "wait"):
             frame = ART[animal.species][0]
-        bouncy = {"hop": 5, "cheer": 5, "wait": 5, "work": 9}.get(animal.state)
-        offset = -int((world.elapsed * bouncy + animal.phase) % 2) if bouncy else 0
+        offset = animal_offset(world, animal)
         for row, line in enumerate(frame if "pixels" not in styles else ()):
             if animal.state == "sleep":
                 line = line.replace("o", "-").replace("'", "-")
@@ -1864,8 +1910,8 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
     if not world.animals and not world.raid:
         hint = "The park is quiet... run an AI agent (claude, codex, opencode, ...) and the animals will come."
         draw(screen, (world.ground_top + height) // 2, max(0, (width - len(hint)) // 2), hint, curses.A_DIM)
-    footer = "q quit | r raid | l location | space pause | a auto | "
-    footer += ("n animal | " if world.wild else "") + "p play | i info | s system | +/- speed"
+    footer = "q quit | click cat: chat | i info | p play | space pause | l place | r raid | a auto | "
+    footer += ("n animal | " if world.wild else "") + "s system | +/- speed"
     draw(screen, height - 1, 2, ("[PAUSED] " if paused else "") + footer, curses.A_DIM)
 
 
@@ -1876,6 +1922,11 @@ def main(screen, wild=False, ascii_only=False):
         pass
     screen.nodelay(True)
     screen.keypad(True)
+    try:
+        curses.mousemask(curses.BUTTON1_CLICKED | curses.BUTTON1_RELEASED)
+        curses.mouseinterval(150)
+    except (curses.error, AttributeError):
+        pass
     styles = {species: curses.A_BOLD for species in SPRITES}
     if curses.has_colors():
         curses.start_color()
@@ -1919,6 +1970,7 @@ def main(screen, wild=False, ascii_only=False):
     rng = random.Random(42)
     stars = [(rng.random(), rng.random(), rng.random() * math.tau) for _ in range(32)]
     paused, speed, show_info, info_offset = False, 8.0, False, 0
+    info_message = ''
     monitor, watcher, next_poll = AgentMonitor(), ProcessWatcher(), 0.0
     system, show_system, mood = SystemMonitor(), True, "calm"
     router_monitor, routers = RouterMonitor(), []
@@ -1944,11 +1996,27 @@ def main(screen, wild=False, ascii_only=False):
             show_system = not show_system
         elif key in (ord("i"), ord("I")):
             show_info = not show_info
+            info_message = ''
         elif show_info and key in (curses.KEY_DOWN, ord('j')):
             count = sum(bool(a.agent) and not a.sub for a in world.animals)
             info_offset = min(max(0, count - max(1, (screen.getmaxyx()[0] - 7) // 3)), info_offset + 1)
         elif show_info and key in (curses.KEY_UP, ord('k')):
             info_offset = max(0, info_offset - 1)
+        elif key == curses.KEY_MOUSE and not show_info:
+            try:
+                _, mx, my, _, buttons = curses.getmouse()
+                if buttons & (curses.BUTTON1_CLICKED | curses.BUTTON1_RELEASED):
+                    animal = clicked_agent(world, mx, my, 'pixels' in styles)
+                    if animal:
+                        ok, message = focus_terminal(animal.terminal)
+                        world.say(f'{animal.name}: {message}')
+                        if not ok:
+                            show_info = True
+                            info_message = f'{animal.name}: {message}'
+                            agents = [a for a in world.animals if a.agent and not a.sub]
+                            info_offset = agents.index(animal)
+            except curses.error:
+                pass
         height, width = screen.getmaxyx()
         world.width, world.height = width, height
         screen.erase()
@@ -1964,7 +2032,7 @@ def main(screen, wild=False, ascii_only=False):
                 elif key in (ord("r"), ord("R")):
                     world.start_raid()
                 if now >= next_poll:
-                    world.sync_agents(monitor.poll(now), monitor.subagents, monitor.models, monitor.contexts)
+                    world.sync_agents(monitor.poll(now), monitor.subagents, monitor.models, monitor.contexts, monitor.terminals)
                     for pid, name, detail in watcher.poll(now):
                         if world.threat(name, detail):
                             watcher.fought.add(pid)
@@ -1979,7 +2047,7 @@ def main(screen, wild=False, ascii_only=False):
             render(screen, world, speed, paused, styles, stars, system if show_system else None,
                    routers, usage_monitor.poll())
             if show_info:
-                render_agent_info(screen, world, styles, info_offset)
+                render_agent_info(screen, world, styles, info_offset, info_message)
         screen.refresh()
         curses.napms(40)
 
