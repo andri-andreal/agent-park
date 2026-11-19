@@ -619,7 +619,8 @@ class AgentTests(unittest.TestCase):
             self.skipTest("this node cannot strip TypeScript types")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout),
-                         ["agent_end", "agent_start", "model_select", "session_shutdown", "session_start"])
+                         ["agent_end", "agent_start", "model_select", "session_shutdown", "session_start",
+                          "tool_execution_end", "tool_execution_start"])
 
     def test_state_lines_describe_agents_for_other_views(self):
         with tempfile.TemporaryDirectory() as root:

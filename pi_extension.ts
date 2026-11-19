@@ -16,15 +16,16 @@ const HOOK = join(dirname(realpathSync(fileURLToPath(import.meta.url))), "agent_
 
 // One hook at a time, so a quick start -> end never lands out of order.
 let queue = Promise.resolve()
-function send(hook_event_name: string, ctx?: any) {
+function send(hook_event_name: string, ctx?: any, details: Record<string, unknown> = {}) {
   const model = ctx?.model?.id
+  const event = { hook_event_name, ...details, ...(model && { model }), ...(ctx?.cwd && { cwd: ctx.cwd }) }
   queue = queue.then(() => new Promise<void>((done) => {
     try {
       const child = spawn(PYTHON, [HOOK, "pi"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true })
       child.on("error", () => done())
       child.on("close", () => done())
       child.stdin.on("error", () => {})
-      child.stdin.end(JSON.stringify(model ? { hook_event_name, model } : { hook_event_name }))
+      child.stdin.end(JSON.stringify(event))
     } catch {
       done()  // a screensaver must never break the agent's turn
     }
@@ -36,6 +37,10 @@ export default function (pi: any) {
   // Once per prompt; agent_end also comes when you press Esc.
   pi.on("agent_start", async (_event: any, ctx: any) => send("UserPromptSubmit", ctx))
   pi.on("agent_end", async (_event: any, ctx: any) => send("Stop", ctx))
+  pi.on("tool_execution_start", async (event: any, ctx: any) => send("PreToolUse", ctx,
+    { tool_name: event.toolName, tool_input: event.args }))
+  pi.on("tool_execution_end", async (event: any, ctx: any) => send(
+    event.isError ? "PostToolUseFailure" : "PostToolUse", ctx, { tool_name: event.toolName }))
   // /model or Ctrl+P: the animal's label follows without changing what it does.
   pi.on("model_select", async (event: any) => send("ModelSelect", { model: event?.model }))
   // /new, /resume and /fork shut a session down and start the next at once.

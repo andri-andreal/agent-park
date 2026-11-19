@@ -39,10 +39,15 @@ export function subagentType(title) {
 }
 
 // OpenCode 1.x puts an event's payload in `properties`, 2.x in `data`.
-export function createTracker(emit) {
+export function createTracker(emit, directory = "") {
   const status = new Map()  // main session id -> "work" | "wait" | "idle"
   const children = new Map()  // subagent session id -> { parent, type, running }
   const models = new Map()  // main session id -> model id last reported
+  const directories = new Map()  // session id -> directory reported by that session
+  const context = (session) => {
+    const cwd = directories.get(session) || directory
+    return cwd ? { cwd } : {}
+  }
 
   // Each session reports on its own: under `opencode serve` one process runs
   // every window, and agent_hook.py files the states per session.
@@ -50,7 +55,7 @@ export function createTracker(emit) {
     if (!session || status.get(session) === state) return
     status.set(session, state)
     const model = models.get(session)
-    emit({ hook_event_name: HOOK_EVENTS[state], session_id: session, ...(model && { model }) })
+    emit({ hook_event_name: HOOK_EVENTS[state], session_id: session, ...context(session), ...(model && { model }) })
   }
 
   // Sessions (2.x) and assistant messages (1.x: modelID) name their model;
@@ -59,7 +64,7 @@ export function createTracker(emit) {
     const model = typeof info.model === "string" ? info.model : info.model?.id || info.model?.modelID || info.modelID
     if (!session || children.has(session) || !model || models.get(session) === model) return
     models.set(session, model)
-    if (status.has(session)) emit({ hook_event_name: "ModelSelect", session_id: session, model })
+    if (status.has(session)) emit({ hook_event_name: "ModelSelect", session_id: session, model, ...context(session) })
   }
 
   function child(session, running) {
@@ -78,10 +83,12 @@ export function createTracker(emit) {
   // A subagent asking still needs you; its parent's animal shows it.
   const main = (session) => children.get(session)?.parent || session
 
-  return async ({ event }) => {
+  const track = async ({ event }) => {
     const data = event.data || event.properties || {}
     const info = data.info || data  // 1.x wraps sessions in `info`
     const session = data.sessionID || data.form?.sessionID
+    const id = session || info.id || info.sessionID
+    if (id && typeof info.directory === "string") directories.set(id, info.directory)
     noteModel(session || info.sessionID || (event.type.startsWith("session.") && info.id), info)
     switch (event.type) {
       case "session.created":
@@ -98,6 +105,7 @@ export function createTracker(emit) {
         children.delete(id)
         status.delete(id)
         models.delete(id)
+        directories.delete(id)
         break
       }
       case "session.execution.started":
@@ -128,6 +136,15 @@ export function createTracker(emit) {
         break
     }
   }
+  // Tool hooks report observations even while the session stays busy. Keep
+  // helper sessions from replacing their parent's per-window context.
+  track.tool = (hook, session, tool, input, cwd) => {
+    if (!session || children.has(session)) return
+    status.set(session, "work")
+    emit({ hook_event_name: hook, session_id: session, tool_name: tool,
+           ...(input && { tool_input: input }), ...context(session), ...(cwd && { cwd }) })
+  }
+  return track
 }
 
 export default {
@@ -137,6 +154,13 @@ export default {
     const stream = context.event?.subscribe?.()
     if (!stream) return
     const event = createTracker(send);
+    if (context.tool?.hook) {
+      await context.tool.hook("execute.before", (item) =>
+        event.tool("PreToolUse", item.sessionID, item.tool, item.input, item.location?.directory))
+      await context.tool.hook("execute.after", (item) =>
+        event.tool(item.status === "error" ? "PostToolUseFailure" : "PostToolUse",
+                   item.sessionID, item.tool, undefined, item.location?.directory))
+    }
     (async () => {
       try {
         for await (const item of stream) await event({ event: item })
@@ -144,8 +168,15 @@ export default {
     })()
   },
   // OpenCode 1.x: an event hook.
-  server: async () => ({
-    event: createTracker(send),
-    dispose: () => send({ hook_event_name: "SessionEnd" }),
-  }),
+  server: async (context) => {
+    const event = createTracker(send, context?.directory || "")
+    return {
+      event,
+      "tool.execute.before": async (input, output) =>
+        event.tool("PreToolUse", input.sessionID, input.tool, output.args),
+      "tool.execute.after": async (input) =>
+        event.tool("PostToolUse", input.sessionID, input.tool),
+      dispose: () => send({ hook_event_name: "SessionEnd" }),
+    }
+  },
 }

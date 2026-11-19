@@ -21,7 +21,7 @@ import sys
 import time
 from urllib.parse import urlsplit
 
-from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of
+from agent_hook import AGENT_PROCESSES, HELPER_ARGS, STATE_DIR, agent_of, short_label
 from platform_support import python_command, source_for
 from usage_limits import UsageMonitor, mood_face, until
 import terminal_pixels
@@ -194,6 +194,7 @@ class Animal:
     desk: int = -1  # office desk while working (see World.desks)
     seated: bool = False  # at that desk, typing
     play_home: object = None  # (x, y) centre of a short play session
+    context: object = None  # project and last observed action from the session hook
 
     @property
     def width(self):
@@ -231,6 +232,7 @@ class AgentMonitor:
         self.subagents = {}  # session key -> [(agent id, agent type)], set by poll
         self.models = {}  # session key -> model name its hook reported, set by poll
         self.status_meta = {}  # session key -> source and last hook event time
+        self.contexts = {}  # session key -> project and activity metadata
         self.ticks_per_second = self.source.ticks_per_second
         self.history = {}
 
@@ -261,11 +263,25 @@ class AgentMonitor:
             return None
         if data.get("model"):
             self.models[pid] = str(data["model"])
+        self.note_context(pid, data)
         if data["state"] == "work" and not busy and self.clock() - data.get("time", 0) > HOOK_STALE:
             self.status_meta[pid] = {"source": "cpu", "updated_at": data.get("time"), "stale": True}
+            if pid in self.contexts:
+                self.contexts[pid]['stale'] = True
             return "idle"
         self.status_meta[pid] = {"source": "hook", "updated_at": data.get("time"), "stale": False}
         return data["state"]
+
+    def note_context(self, key, data):
+        context = data.get('context')
+        if not isinstance(context, dict):
+            return
+        clean = {field: short_label(context.get(field), 64)
+                 for field in ('project', 'activity', 'last_action')}
+        updated = context.get('updated_at')
+        clean['updated_at'] = updated if isinstance(updated, (int, float)) and math.isfinite(updated) else None
+        if any(clean[field] for field in ('project', 'activity', 'last_action')):
+            self.contexts[key] = clean
 
     def shared_sessions(self, kind, windows):
         """Newest hook states written by a shared helper, one per open window."""
@@ -289,6 +305,7 @@ class AgentMonitor:
             except (OSError, ValueError):
                 continue
             if data.get("state") in ("work", "wait", "idle"):
+                self.note_context(f"{kind}:{name[len(kind) + 1:-5]}", data)
                 sessions.append((data.get("time", 0), name[len(kind) + 1:-5], data["state"],
                                  str(data.get("model") or "")))
         return sorted(sessions, reverse=True)[:windows]
@@ -366,7 +383,7 @@ class AgentMonitor:
                 parent = procs[parent][2]
             if pid not in sessions and parent in sessions:
                 sessions[parent][1] += ticks
-        found, self.models, self.status_meta = {}, {}, {}
+        found, self.models, self.status_meta, self.contexts = {}, {}, {}, {}
         for pid, (kind, ticks) in sessions.items():
             samples = self.history.get(pid, [])[-AGENT_WINDOW:] + [(now, ticks)]
             self.history[pid] = samples
@@ -390,6 +407,7 @@ class AgentMonitor:
                 if model:
                     self.models[f"{kind}:{session}"] = model
         self.subagents = self.read_subagents(found)
+        self.contexts = {key: value for key, value in self.contexts.items() if key in found}
         return found
 
 
@@ -700,14 +718,16 @@ class World:
             self.say(f"{species.capitalize()} numpang lewat dulu...")
         self.animals.append(animal)
 
-    def sync_agents(self, sessions, subagents=None, models=None):
+    def sync_agents(self, sessions, subagents=None, models=None, contexts=None):
         """Match agent cats to {pid: (kind, status)} from AgentMonitor.poll,
         kittens to {pid: [(agent id, agent type)]} from its subagents and
         names to {pid: model} from its models."""
         models = models or {}
+        contexts = contexts or {}
         for animal in self.animals:
             if animal.agent in sessions and not animal.sub:
                 animal.model = short_model(models.get(animal.agent, ""))
+                animal.context = contexts.get(animal.agent)
                 status = sessions[animal.agent][1]
                 if status == "wait" and animal.status != "wait":
                     self.say(f"{animal.name} needs your approval!")
@@ -741,6 +761,7 @@ class World:
                 self.rng.choice((-1, 1)), 0, phase=self.rng.random() * 10,
                 agent=pid, agent_kind=kind, name=name, status=status,
                 model=short_model(models.get(pid, "")),
+                context=contexts.get(pid),
                 state="arrive", entrance=entrance, entry=duration,
             ))
             self.say(message.format(name=name))
@@ -1095,6 +1116,57 @@ def draw(screen, y, x, text, style=0):
 
 def style_of(styles, animal):
     return styles.get(animal.agent_kind, styles.get(animal.species, curses.A_BOLD))
+
+
+def brief_activity(animal):
+    context = animal.context or {}
+    updated = context.get('updated_at')
+    if (animal.status != 'work' or context.get('stale') or not updated
+            or time.time() - updated > HOOK_STALE):
+        return ''
+    action = context.get('activity', '')
+    return context.get('project', '') if action in ('Working', 'Working on request') else action
+
+
+def render_agent_info(screen, world, styles, offset=0):
+    """Inspect observed actions without crowding the cats' one-line labels."""
+    height, width = screen.getmaxyx()
+    agents = [a for a in world.animals if a.agent and not a.sub]
+    visible = max(1, (height - 7) // 3)
+    offset = max(0, min(offset, max(0, len(agents) - visible)))
+    shown = agents[offset:offset + visible]
+    inner = min(100, width - 6)
+    left, top = (width - inner - 2) // 2, 2
+    rows = []
+    for animal in shown:
+        context = animal.context or {}
+        project = context.get('project') or 'project unknown'
+        name = f'{animal.name} | {animal.status} | {project}'
+        if animal.model:
+            name += f' | {animal.model}'
+        rows.append((' ' + name, style_of(styles, animal)))
+        activity = context.get('activity') or 'Unknown: no activity hook data'
+        updated = context.get('updated_at')
+        age = max(0, time.time() - updated) if updated else None
+        if context.get('stale') or (age is not None and age > HOOK_STALE):
+            activity = 'Last observed: ' + activity
+        rows.append(('  ' + activity, 0))
+        last = context.get('last_action', '')
+        detail = f'Last tool: {last}' if last else 'No tool reported'
+        if age is not None:
+            detail += f' | {duration(age)} ago'
+        if isinstance(animal.agent, str) and ':' in animal.agent:
+            detail += ' | window matched by recency'
+        rows.append(('  ' + detail, curses.A_DIM))
+    if not rows:
+        rows = [('No active agent sessions.', 0)]
+    heading = f' agents {offset + 1 if agents else 0}-{offset + len(shown)}/{len(agents)} / observed activity '
+    draw(screen, top, left, '+' + heading[:inner].ljust(inner, '-') + '+', curses.A_BOLD)
+    for row, (text, style) in enumerate(rows, top + 1):
+        draw(screen, row, left, '|' + ' ' * inner + '|')
+        draw(screen, row, left + 1, text[:inner], style)
+    footer = ' i close | up/down scroll '
+    draw(screen, top + len(rows) + 1, left, '+' + footer[:inner].ljust(inner, '-') + '+', curses.A_DIM)
 
 
 def render_play(screen, world, animal, styles):
@@ -1764,6 +1836,9 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
             name = f"{animal.name} | {animal.model}" if animal.model and not animal.sub else animal.name
             chatter = "" if animal.seated else label or ""
             text = f"[{name}] {chatter}".rstrip()
+            activity = brief_activity(animal)
+            if activity and not animal.sub:
+                text = f"[{animal.name}] {activity}"
             if animal.seated and len(text) > DESK_WIDTH - 1:
                 text = text[:DESK_WIDTH - 3] + "~]"
             draw(screen, animal.y - 1, min(animal.x, width - len(text) - 1), text,
@@ -1790,7 +1865,7 @@ def render(screen, world, speed, paused, styles, stars, system=None, routers=(),
         hint = "The park is quiet... run an AI agent (claude, codex, opencode, ...) and the animals will come."
         draw(screen, (world.ground_top + height) // 2, max(0, (width - len(hint)) // 2), hint, curses.A_DIM)
     footer = "q quit | r raid | l location | space pause | a auto | "
-    footer += ("n animal | " if world.wild else "") + "p play | s system | +/- speed"
+    footer += ("n animal | " if world.wild else "") + "p play | i info | s system | +/- speed"
     draw(screen, height - 1, 2, ("[PAUSED] " if paused else "") + footer, curses.A_DIM)
 
 
@@ -1843,7 +1918,7 @@ def main(screen, wild=False, ascii_only=False):
     world = World(width, height, wild=wild)
     rng = random.Random(42)
     stars = [(rng.random(), rng.random(), rng.random() * math.tau) for _ in range(32)]
-    paused, speed = False, 8.0
+    paused, speed, show_info, info_offset = False, 8.0, False, 0
     monitor, watcher, next_poll = AgentMonitor(), ProcessWatcher(), 0.0
     system, show_system, mood = SystemMonitor(), True, "calm"
     router_monitor, routers = RouterMonitor(), []
@@ -1867,6 +1942,13 @@ def main(screen, wild=False, ascii_only=False):
             world.auto_place = not world.auto_place
         elif key in (ord("s"), ord("S")):
             show_system = not show_system
+        elif key in (ord("i"), ord("I")):
+            show_info = not show_info
+        elif show_info and key in (curses.KEY_DOWN, ord('j')):
+            count = sum(bool(a.agent) and not a.sub for a in world.animals)
+            info_offset = min(max(0, count - max(1, (screen.getmaxyx()[0] - 7) // 3)), info_offset + 1)
+        elif show_info and key in (curses.KEY_UP, ord('k')):
+            info_offset = max(0, info_offset - 1)
         height, width = screen.getmaxyx()
         world.width, world.height = width, height
         screen.erase()
@@ -1882,7 +1964,7 @@ def main(screen, wild=False, ascii_only=False):
                 elif key in (ord("r"), ord("R")):
                     world.start_raid()
                 if now >= next_poll:
-                    world.sync_agents(monitor.poll(now), monitor.subagents, monitor.models)
+                    world.sync_agents(monitor.poll(now), monitor.subagents, monitor.models, monitor.contexts)
                     for pid, name, detail in watcher.poll(now):
                         if world.threat(name, detail):
                             watcher.fought.add(pid)
@@ -1896,6 +1978,8 @@ def main(screen, wild=False, ascii_only=False):
                 world.update(dt, speed)
             render(screen, world, speed, paused, styles, stars, system if show_system else None,
                    routers, usage_monitor.poll())
+            if show_info:
+                render_agent_info(screen, world, styles, info_offset)
         screen.refresh()
         curses.napms(40)
 

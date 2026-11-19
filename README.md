@@ -225,6 +225,24 @@ settings are stored locally by the 3D view. Notifications are off by default.
 A new model appears after that session's first hook runs. Agents without a hook
 do not display a model.
 
+Press **`i`** in the terminal to inspect what each agent has reported: its name,
+status, project folder name, model, most recent activity, last tool action and
+the age of that observation. Use **Up/Down** (or **j/k**) to scroll and **i** to
+close. Recent working activity also appears above its animal, for example
+`[Claude] Editing app.py` or `[Codex] Running tests`. Short desk labels are
+clipped; the panel has more room for the details.
+
+The panel reports observed tool activity. The user's overall task goal is not
+inferred from prompts. Hooks that include `cwd`, `tool_name` and `tool_input`
+supply the context. Pi's
+extension and OpenCode's tool hooks forward these observations; restart those
+agents after updating the integration. Missing hook metadata is shown as
+unknown. Old observations are marked as last observed, and shared-server window
+matching remains based on recency. Only the latest tool observation is shown
+when tools run in parallel.
+
+![Per-agent project and observed activity in the terminal info panel](docs/terminal-activity.png)
+
 AI cats do not just walk in plainly. Their entrance is chosen at random: they
 fall as a **meteor** (KABOOM!), get lowered by a **UFO** with a beam, come out
 of a **portal**, **parachute** in, or get **teleported** from a random
@@ -416,6 +434,7 @@ resize.
 | `+` / `-` | Increase / decrease speed |
 | `n` | Bring in a passing animal, if the screen is not yet full (only with `--semua`) |
 | `p` | Start a play break for idle residents already in the park |
+| `i` | Show/hide per-agent projects and observed activity; Up/Down or j/k scroll |
 | `l` | Move to the next location |
 | `r` | Trigger a monster attack; all animals cooperate until they win |
 | `a` | Toggle automatic location switching (stay in the current place) |
@@ -477,11 +496,13 @@ checks the Rust backend, on Linux and, not yet required to pass, on Windows.
 
 ### Local data and limitations
 
-Hooks write status, session identifiers, timestamps, and model names to
+Hooks write status, session identifiers, timestamps, model names, project-folder
+basenames and short activity descriptions to
 `$XDG_RUNTIME_DIR/agent-park` (or `~/.cache/agent-park`; `%LOCALAPPDATA%\agent-park`
 on Windows). They may read the tail
 of local transcripts or the OpenCode database to determine the model; prompt
-and response text is not copied into state files. Session-end events and the
+and response text, file contents, full paths and raw shell commands are not
+copied into state files. Session-end events and the
 monitor clean up state files, but abrupt shutdowns can leave files until a later
 monitor run. Remove the directory manually when Agent Park is stopped if needed.
 Agent detection and CPU estimates read Linux `/proc`, or `psutil` on Windows and

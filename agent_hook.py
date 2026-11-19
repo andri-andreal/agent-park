@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import sqlite3
 import sys
 import time
@@ -163,6 +164,101 @@ def read(path):
         return {}
 
 
+def short_label(value, limit=48):
+    """One safe terminal line; never interpret names as terminal controls."""
+    if not isinstance(value, str):
+        return ""
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
+    value = " ".join(''.join(c for c in value if c.isprintable()).split())
+    value = value.encode('ascii', 'replace').decode()
+    return value[:limit]
+
+
+def path_label(value):
+    if not isinstance(value, str):
+        return ""
+    return short_label(value.replace('\\', '/').rstrip('/').rsplit('/', 1)[-1])
+
+
+def tool_activity(event):
+    """Describe a tool without copying commands, prompts or file contents."""
+    tool = event.get('tool_name') or event.get('tool') or ''
+    if not isinstance(tool, str):
+        return ""
+    tool = tool.rsplit('__', 1)[-1].rsplit('.', 1)[-1].lower()
+    args = event.get('tool_input') or {}
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except ValueError:
+            args = {}
+    if not isinstance(args, dict):
+        args = {}
+    filename = path_label(args.get('file_path') or args.get('filePath') or args.get('path') or args.get('file'))
+    if tool in ('read', 'read_file', 'view_image'):
+        return 'Reading' + (f' {filename}' if filename else ' a file')
+    if tool in ('edit', 'multiedit', 'write', 'write_file', 'apply_patch'):
+        return 'Editing' + (f' {filename}' if filename else ' files')
+    if tool in ('grep', 'glob', 'search', 'rg'):
+        return 'Searching files'
+    if tool in ('bash', 'shell', 'exec_command', 'run_shell_command'):
+        command = args.get('command') or args.get('cmd') or ''
+        try:
+            tokens = shlex.split(command) if isinstance(command, str) else []
+        except ValueError:
+            tokens = []
+        if tokens and tokens[0] == 'env':
+            tokens = tokens[1:]
+        while tokens and re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', tokens[0]):
+            tokens = tokens[1:]
+        executable = tokens[0].replace('\\', '/').rsplit('/', 1)[-1] if tokens else ''
+        args = tokens[1:]
+        if executable in ('uv', 'poetry') and args[:1] == ['run']:
+            executable, args = (args[1], args[2:]) if len(args) > 1 else ('', [])
+        python_test = executable.startswith('python') and len(args) > 1 and args[0] == '-m' and args[1] in ('pytest', 'unittest')
+        runner = executable in ('npm', 'pnpm', 'yarn', 'bun', 'cargo', 'go', 'make')
+        target = args[1] if args[:1] == ['run'] and len(args) > 1 else (args[0] if args else '')
+        if python_test or executable in ('pytest', 'vitest', 'jest') or (runner and target in ('test', 'tests')):
+            return 'Running tests'
+        if executable == 'tsc' or (runner and target in ('build', 'compile')):
+            return 'Building project'
+        if executable == 'git':
+            return 'Checking changes' if args[:1] in (['diff'], ['status'], ['log'], ['show']) else 'Git operation'
+        return 'Running a command'
+    if tool in ('task', 'agent', 'spawn_agent'):
+        return 'Delegating work'
+    return 'Using a tool' if tool else ''
+
+
+def activity_context(event, state, old, now):
+    """Metadata only: project basename and a coarse description of the last action."""
+    old = old if isinstance(old, dict) else {}
+    project = path_label(event.get('cwd') or event.get('directory') or event.get('worktree')) or old.get('project', '')
+    hook = str(event.get('hook_event_name', ''))
+    action = tool_activity(event)
+    last_action = action or old.get('last_action', '')
+    if hook.lower() in ('posttooluse', 'posttoolusefailure') and not event.get('tool_input'):
+        last_action = old.get('last_action') or action
+    if state == 'wait':
+        activity = 'Needs approval'
+    elif state == 'idle':
+        activity = 'Idle'
+    elif hook.lower() == 'userpromptsubmit':
+        activity, last_action = 'Working on request', ''
+    elif hook.lower() in ('pretooluse', 'permissionresult'):
+        activity = action or 'Working'
+    elif hook.lower() in ('posttooluse', 'posttoolusefailure'):
+        activity = 'Tool failed' if hook.lower() == 'posttoolusefailure' else 'Thinking'
+    elif hook.lower() == 'subagentstart':
+        activity = 'Delegating work'
+    else:
+        activity = old.get('activity', '') or ('Working' if state == 'work' else '')
+    return {key: value for key, value in {
+        'project': project, 'activity': activity, 'last_action': last_action,
+        'updated_at': now if state else old.get('updated_at'),
+    }.items() if value not in ('', None)}
+
+
 def replace(source, destination, attempts=20, pause=0.01):
     """os.replace, retried on Windows, where it fails while the screensaver has the file open."""
     for attempt in range(attempts):
@@ -227,6 +323,12 @@ def record(kind, event, pid, state_dir=STATE_DIR, now=None):
             data.update({key: old.get(key) for key in ("state", "event", "time")})
         if model:
             data["model"] = model
+        previous_context = old.get('context')
+        if (str(hook).lower() in ('sessionstart', 'agentspawn')
+                or (event.get('session_id') and old.get('session_id')
+                    and event['session_id'] != old['session_id'])):
+            previous_context = None
+        data['context'] = activity_context(event, state, previous_context, now)
         write(path, data)
 
 
